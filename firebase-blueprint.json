@@ -1,0 +1,251 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Authenticated gym user profile with server-controlled RBAC role, plan tier, trainer assignment, and onboarding consent metadata.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Firebase Auth UID matching document ID." },
+        "displayName": { "type": "string", "description": "Full name shown on pass and admin roster." },
+        "email": { "type": "string", "description": "Verified Google account email." },
+        "phone": { "type": "string", "description": "Optional contact phone number." },
+        "emergencyContact": { "type": "string", "description": "Optional emergency contact name and number." },
+        "photoUrl": { "type": "string", "description": "Optional profile avatar URL." },
+        "role": { "type": "string", "enum": ["member", "trainer", "admin"], "description": "RBAC role controlled exclusively by Admin/backend." },
+        "planTier": { "type": "string", "enum": ["basic", "premium"], "description": "Subscription tier (Premium unlocks AI Coach in Phase 3; not a role)." },
+        "membershipStatus": { "type": "string", "enum": ["active", "frozen", "expired", "pending"], "description": "Current facility access status." },
+        "assignedTrainerId": { "type": "string", "description": "Optional UID of assigned trainer." },
+        "onboardingCompleted": { "type": "boolean", "description": "Whether onboarding and T&C/DPDP consent were completed." },
+        "termsVersion": { "type": "string", "description": "Accepted Terms & Privacy Policy draft version." },
+        "dpdpConsentAccepted": { "type": "boolean", "description": "DPDP Act 2023 explicit data processing consent." },
+        "healthWaiverAccepted": { "type": "boolean", "description": "Health declaration and liability waiver consent." },
+        "consentAcceptedAt": { "type": "string", "format": "date-time", "description": "Server timestamp of consent acceptance." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp of profile creation." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp of last update." }
+      },
+      "required": [
+        "userId",
+        "displayName",
+        "email",
+        "role",
+        "planTier",
+        "membershipStatus",
+        "onboardingCompleted",
+        "termsVersion",
+        "dpdpConsentAccepted",
+        "healthWaiverAccepted",
+        "consentAcceptedAt",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "AdminGrant": {
+      "title": "AdminGrant",
+      "description": "Server-verified admin registry document keyed by admin UID.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Granted admin UID." },
+        "email": { "type": "string", "description": "Admin email." },
+        "grantedBy": { "type": "string", "description": "Granting admin UID." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp of grant." }
+      },
+      "required": ["userId", "email", "grantedBy", "createdAt"]
+    },
+    "ConsentRecord": {
+      "title": "ConsentRecord",
+      "description": "Immutable consent record capturing T&C, Privacy Policy, and DPDP Act 2023 acceptance.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Consenting user UID." },
+        "termsVersion": { "type": "string", "description": "Version identifier of accepted draft T&C/Privacy Policy." },
+        "dpdpConsentAccepted": { "type": "boolean", "description": "DPDP Act 2023 consent flag." },
+        "healthWaiverAccepted": { "type": "boolean", "description": "Health & liability waiver consent flag." },
+        "acceptedAt": { "type": "string", "format": "date-time", "description": "Server timestamp of acceptance." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp of record creation." }
+      },
+      "required": ["userId", "termsVersion", "dpdpConsentAccepted", "healthWaiverAccepted", "acceptedAt", "createdAt"]
+    },
+    "GymConfig": {
+      "title": "GymConfig",
+      "description": "Battle Box facility configuration including geofence, IST timings, and data region disclosure.",
+      "type": "object",
+      "properties": {
+        "gymName": { "type": "string" },
+        "mapsUrl": { "type": "string" },
+        "latitude": { "type": "number" },
+        "longitude": { "type": "number" },
+        "geofenceRadiusM": { "type": "number" },
+        "maxGpsAccuracyM": { "type": "number" },
+        "autoCheckoutHours": { "type": "number" },
+        "morningOpen": { "type": "string" },
+        "morningClose": { "type": "string" },
+        "eveningOpen": { "type": "string" },
+        "eveningClose": { "type": "string" },
+        "timezone": { "type": "string" },
+        "currency": { "type": "string" },
+        "dataRegion": { "type": "string" },
+        "manualStatusOverride": { "type": "string", "enum": ["auto", "open", "closed"] },
+        "maxCapacity": { "type": "integer" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "gymName",
+        "mapsUrl",
+        "latitude",
+        "longitude",
+        "geofenceRadiusM",
+        "maxGpsAccuracyM",
+        "autoCheckoutHours",
+        "morningOpen",
+        "morningClose",
+        "eveningOpen",
+        "eveningClose",
+        "timezone",
+        "currency",
+        "dataRegion",
+        "manualStatusOverride",
+        "updatedAt"
+      ]
+    },
+    "GymPublicStatus": {
+      "title": "GymPublicStatus",
+      "description": "Aggregate live occupancy count and Open/Closed indicator visible to members without leaking roster PII.",
+      "type": "object",
+      "properties": {
+        "inGymCount": { "type": "integer" },
+        "isOpen": { "type": "boolean" },
+        "statusLabel": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["inGymCount", "isOpen", "statusLabel", "updatedAt"]
+    },
+    "AttendanceRecord": {
+      "title": "AttendanceRecord",
+      "description": "Gym check-in and check-out record with geofence telemetry and 3-hour auto-checkout expiry.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "memberName": { "type": "string" },
+        "memberRole": { "type": "string", "enum": ["member", "trainer", "admin"] },
+        "mode": { "type": "string", "enum": ["front_desk", "trainer_scan", "kiosk_qr"] },
+        "status": { "type": "string", "enum": ["checked_in", "checked_out", "auto_checked_out"] },
+        "distanceMeters": { "type": "number" },
+        "gpsAccuracyMeters": { "type": "number" },
+        "latitude": { "type": "number" },
+        "longitude": { "type": "number" },
+        "verifiedByUid": { "type": "string" },
+        "qrEpochSlot": { "type": "integer" },
+        "checkInAt": { "type": "string", "format": "date-time" },
+        "expiresAt": { "type": "string", "format": "date-time" },
+        "checkOutAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "userId",
+        "memberName",
+        "memberRole",
+        "mode",
+        "status",
+        "distanceMeters",
+        "gpsAccuracyMeters",
+        "latitude",
+        "longitude",
+        "verifiedByUid",
+        "qrEpochSlot",
+        "checkInAt",
+        "expiresAt",
+        "updatedAt"
+      ]
+    },
+    "AttendanceRejection": {
+      "title": "AttendanceRejection",
+      "description": "Logged rejected check-in attempt for geofence, accuracy, expired QR, or membership checks.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "mode": { "type": "string", "enum": ["front_desk", "trainer_scan", "kiosk_qr"] },
+        "reason": { "type": "string" },
+        "distanceMeters": { "type": "number" },
+        "gpsAccuracyMeters": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "mode", "reason", "distanceMeters", "gpsAccuracyMeters", "createdAt"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Immutable append-only audit log of every Admin action.",
+      "type": "object",
+      "properties": {
+        "actorUid": { "type": "string" },
+        "actorEmail": { "type": "string" },
+        "action": { "type": "string" },
+        "targetUid": { "type": "string" },
+        "details": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["actorUid", "actorEmail", "action", "details", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "User profiles isolated per UID, assigned trainer, or Admin."
+    },
+    "/admins/{userId}": {
+      "schema": { "$ref": "#/entities/AdminGrant" },
+      "description": "Admin role grants managed exclusively by Admins."
+    },
+    "/consents/{consentId}": {
+      "schema": { "$ref": "#/entities/ConsentRecord" },
+      "description": "Immutable T&C, health waiver, and DPDP Act 2023 consent logs."
+    },
+    "/gym_config/{configId}": {
+      "schema": { "$ref": "#/entities/GymConfig" },
+      "description": "Battle Box facility geofence, timings, and region settings."
+    },
+    "/gym_public/{statusId}": {
+      "schema": { "$ref": "#/entities/GymPublicStatus" },
+      "description": "Aggregate live gym occupancy count and Open/Closed indicator."
+    },
+    "/attendance/{attendanceId}": {
+      "schema": { "$ref": "#/entities/AttendanceRecord" },
+      "description": "Member and trainer check-in/out records."
+    },
+    "/attendance_rejections/{rejectionId}": {
+      "schema": { "$ref": "#/entities/AttendanceRejection" },
+      "description": "Rejected check-in attempt logs."
+    },
+    "/audit_logs/{logId}": {
+      "schema": { "$ref": "#/entities/AuditLog" },
+      "description": "Append-only Admin audit log."
+    },
+    "/plans/{planId}": {
+      "schema": { "type": "object" },
+      "description": "Membership plans catalog (monthly/quarterly/annual, basic/premium, INR GST)."
+    },
+    "/payment_requests/{requestId}": {
+      "schema": { "type": "object" },
+      "description": "Member-initiated Razorpay one-time or UPI AutoPay checkout intents."
+    },
+    "/subscriptions/{subId}": {
+      "schema": { "type": "object" },
+      "description": "Member UPI AutoPay mandates and renewal windows."
+    },
+    "/payments/{paymentId}": {
+      "schema": { "type": "object" },
+      "description": "Webhook-verified payments and GST invoice metadata."
+    },
+    "/notification_preferences/{userId}": {
+      "schema": { "type": "object" },
+      "description": "Per-user WhatsApp Cloud API opt-in and push alert settings."
+    },
+    "/gym_announcements/{announcementId}": {
+      "schema": { "type": "object" },
+      "description": "Admin-broadcast Open / Closed / Special Hours / Holiday banners."
+    },
+    "/notification_delivery_logs/{logId}": {
+      "schema": { "type": "object" },
+      "description": "WhatsApp Cloud API and push notification delivery-status audit logs."
+    }
+  }
+}

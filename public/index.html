@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#121417" />
+  <title>Battle Box Fight Club • Dudhnoi, Assam</title>
+  <style>
+    :root {
+      --bg: #0f1215;
+      --surface: #181c20;
+      --surface-elevated: #20262b;
+      --green: #2e8b57;
+      --green-bright: #3cb371;
+      --gold: #e5a93c;
+      --text: #f3f5f7;
+      --muted: #9aa5b1;
+      --border: rgba(255, 255, 255, 0.1);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: radial-gradient(circle at top right, rgba(46, 139, 87, 0.18), transparent 45%),
+                  radial-gradient(circle at bottom left, rgba(229, 169, 60, 0.12), transparent 40%),
+                  var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      line-height: 1.55;
+      padding-bottom: 64px;
+    }
+    .container {
+      max-width: 880px;
+      margin: 0 auto;
+      padding: 36px 20px;
+    }
+    .pill {
+      display: inline-block;
+      background: rgba(229, 169, 60, 0.16);
+      color: var(--gold);
+      border: 1px solid rgba(229, 169, 60, 0.35);
+      border-radius: 8px;
+      padding: 4px 10px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 14px;
+    }
+    h1 {
+      font-size: clamp(2rem, 5vw, 3rem);
+      font-weight: 800;
+      letter-spacing: 0.03em;
+      margin-bottom: 6px;
+    }
+    .subtitle {
+      color: var(--gold);
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      font-size: 13px;
+      text-transform: uppercase;
+      margin-bottom: 18px;
+    }
+    .lead {
+      color: var(--muted);
+      font-size: 1rem;
+      max-width: 640px;
+      margin-bottom: 28px;
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 22px;
+      margin-bottom: 18px;
+    }
+    .card h2 {
+      font-size: 1.15rem;
+      margin-bottom: 10px;
+      color: var(--text);
+    }
+    .card p, .card li {
+      color: var(--muted);
+      font-size: 0.94rem;
+    }
+    .card ul {
+      padding-left: 18px;
+      display: grid;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 14px;
+      margin-bottom: 18px;
+    }
+    .stat {
+      background: var(--surface-elevated);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 16px;
+    }
+    .stat-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+    .stat-value {
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: var(--text);
+    }
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 18px;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 46px;
+      padding: 10px 18px;
+      border-radius: 12px;
+      font-weight: 700;
+      font-size: 0.92rem;
+      text-decoration: none;
+      transition: transform 0.15s ease, opacity 0.15s ease;
+    }
+    .btn:hover { transform: translateY(-1px); opacity: 0.95; }
+    .btn-primary { background: var(--green); color: #fff; }
+    .btn-secondary {
+      background: transparent;
+      color: var(--gold);
+      border: 1px solid rgba(229, 169, 60, 0.45);
+    }
+    code {
+      background: rgba(255, 255, 255, 0.08);
+      padding: 2px 6px;
+      border-radius: 6px;
+      font-size: 0.86em;
+      color: var(--green-bright);
+    }
+    .creator-badge {
+      position: fixed;
+      left: 16px;
+      bottom: 14px;
+      background: rgba(24, 28, 32, 0.92);
+      border: 1px solid var(--border);
+      color: var(--gold);
+      font-size: 12px;
+      font-weight: 600;
+      padding: 6px 11px;
+      border-radius: 10px;
+      backdrop-filter: blur(8px);
+    }
+  </style>
+</head>
+<body>
+  <main class="container">
+    <span class="pill">Dudhnoi, Assam &bull; Asia-South1 &bull; Android APK Portal</span>
+    <h1>BATTLE BOX</h1>
+    <div class="subtitle">Fight Club &bull; Dudhnoi</div>
+    <p class="lead">
+      Official native Android gym management app built with Kotlin, Jetpack Compose, Material 3, CameraX QR scanning, and Cloud Firestore in Mumbai (<code>asia-south1</code>).
+    </p>
+
+    <section class="grid">
+      <div class="stat">
+        <div class="stat-label">Gym Timings (IST)</div>
+        <div class="stat-value">05:30–10:00 &amp; 16:30–21:30</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Geofence Radius</div>
+        <div class="stat-value">100 Meters (GPS Verified)</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Application ID</div>
+        <div class="stat-value"><code>com.aistudio.battlebox.kmrxqv</code></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Install Android App Locally</h2>
+      <p>
+        This project compiles directly to an installable Android <code>.apk</code> using Gradle (Kotlin DSL) and also builds automatically via GitHub Actions.
+      </p>
+      <ul>
+        <li>From AI Studio: Open the settings menu &rarr; <strong>Generate APK / AAB</strong> or <strong>Download ZIP</strong>.</li>
+        <li>From GitHub Actions: Download the <code>battle-box-debug-apk</code> artifact from the latest workflow run.</li>
+        <li>From Local Terminal: Run <code>gradle :app:assembleDebug</code> and install via <code>adb install -r app/build/outputs/apk/debug/app-debug.apk</code>.</li>
+      </ul>
+      <div class="actions">
+        <a class="btn btn-primary" href="https://maps.app.goo.gl/4ji9NFtZwpXZSiTN9" target="_blank" rel="noopener noreferrer">
+          Open Battle Box on Google Maps
+        </a>
+        <a class="btn btn-secondary" href="https://console.firebase.google.com/project/gen-lang-client-0270493025/overview" target="_blank" rel="noopener noreferrer">
+          Firebase Project Console
+        </a>
+      </div>
+    </section>
+  </main>
+
+  <div class="creator-badge">App created by DocCoder.exe</div>
+</body>
+</html>

@@ -1,0 +1,585 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helper Primitives ---
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isBootstrappedAdmin() {
+      return isSignedIn() &&
+             'email_verified' in request.auth.token &&
+             request.auth.token.email_verified == true &&
+             'email' in request.auth.token &&
+             request.auth.token.email == 'youngskiiicey@gmail.com';
+    }
+
+    function isAdmin() {
+      return isBootstrappedAdmin() ||
+             (isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)));
+    }
+
+    function isTrainer() {
+      return isSignedIn() &&
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'trainer';
+    }
+
+    function isStaff() {
+      return isAdmin() || isTrainer();
+    }
+
+    function isOptionalString(data, key, maxLen) {
+      return !(key in data) || data[key] == null || (data[key] is string && data[key].size() <= maxLen);
+    }
+
+    function isOptionalCapacity(data, key) {
+      return !(key in data) || data[key] == null || (data[key] is int && data[key] >= 5 && data[key] <= 1000);
+    }
+
+    // --- Validation Blueprints ---
+    function isValidUserProfile(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 80 &&
+             data.email is string && data.email.size() <= 160 &&
+             data.role in ['member', 'trainer', 'admin'] &&
+             data.planTier in ['basic', 'premium'] &&
+             data.membershipStatus in ['active', 'frozen', 'expired', 'pending'] &&
+             data.onboardingCompleted is bool &&
+             data.termsVersion is string && data.termsVersion.size() >= 1 && data.termsVersion.size() <= 32 &&
+             data.dpdpConsentAccepted is bool &&
+             data.healthWaiverAccepted is bool &&
+             data.consentAcceptedAt is timestamp && data.consentAcceptedAt <= request.time &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time &&
+             isOptionalString(data, 'phone', 25) &&
+             isOptionalString(data, 'emergencyContact', 120) &&
+             isOptionalString(data, 'photoUrl', 500) &&
+             isOptionalString(data, 'assignedTrainerId', 128);
+    }
+
+    function isValidAdminGrant(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.email is string && data.email.size() <= 160 &&
+             data.grantedBy is string && data.grantedBy.size() >= 1 && data.grantedBy.size() <= 128 &&
+             data.createdAt is timestamp && data.createdAt <= request.time;
+    }
+
+    function isValidConsentRecord(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.termsVersion is string && data.termsVersion.size() >= 1 && data.termsVersion.size() <= 32 &&
+             data.dpdpConsentAccepted == true &&
+             data.healthWaiverAccepted == true &&
+             data.acceptedAt is timestamp && data.acceptedAt <= request.time &&
+             data.createdAt is timestamp && data.createdAt <= request.time;
+    }
+
+    function isValidGymConfig(data) {
+      return data.gymName is string && data.gymName.size() >= 1 && data.gymName.size() <= 80 &&
+             data.mapsUrl is string && data.mapsUrl.size() >= 1 && data.mapsUrl.size() <= 500 &&
+             data.latitude is number && data.latitude >= -90 && data.latitude <= 90 &&
+             data.longitude is number && data.longitude >= -180 && data.longitude <= 180 &&
+             data.geofenceRadiusM is number && data.geofenceRadiusM >= 10 && data.geofenceRadiusM <= 5000 &&
+             data.maxGpsAccuracyM is number && data.maxGpsAccuracyM >= 5 && data.maxGpsAccuracyM <= 500 &&
+             data.autoCheckoutHours is number && data.autoCheckoutHours >= 0.5 && data.autoCheckoutHours <= 24 &&
+             data.morningOpen is string && data.morningOpen.size() >= 4 && data.morningOpen.size() <= 10 &&
+             data.morningClose is string && data.morningClose.size() >= 4 && data.morningClose.size() <= 10 &&
+             data.eveningOpen is string && data.eveningOpen.size() >= 4 && data.eveningOpen.size() <= 10 &&
+             data.eveningClose is string && data.eveningClose.size() >= 4 && data.eveningClose.size() <= 10 &&
+             data.timezone is string && data.timezone.size() >= 1 && data.timezone.size() <= 60 &&
+             data.currency is string && data.currency.size() >= 1 && data.currency.size() <= 10 &&
+             data.dataRegion is string && data.dataRegion.size() >= 1 && data.dataRegion.size() <= 80 &&
+              data.manualStatusOverride in ['auto', 'open', 'closed'] &&
+              isOptionalCapacity(data, 'maxCapacity') &&
+              data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidGymPublicStatus(data) {
+      return data.inGymCount is int && data.inGymCount >= 0 && data.inGymCount <= 1000 &&
+             data.isOpen is bool &&
+             data.statusLabel is string && data.statusLabel.size() >= 1 && data.statusLabel.size() <= 40 &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidAttendanceRecord(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.memberName is string && data.memberName.size() >= 1 && data.memberName.size() <= 80 &&
+             data.memberRole in ['member', 'trainer', 'admin'] &&
+             data.mode in ['front_desk', 'trainer_scan', 'kiosk_qr'] &&
+             data.status in ['checked_in', 'checked_out', 'auto_checked_out'] &&
+             data.distanceMeters is number && data.distanceMeters >= 0 && data.distanceMeters <= 25000000 &&
+             data.gpsAccuracyMeters is number && data.gpsAccuracyMeters >= 0 && data.gpsAccuracyMeters <= 100000 &&
+             data.latitude is number && data.latitude >= -90 && data.latitude <= 90 &&
+             data.longitude is number && data.longitude >= -180 && data.longitude <= 180 &&
+             data.verifiedByUid is string && data.verifiedByUid.size() >= 1 && data.verifiedByUid.size() <= 128 &&
+             data.qrEpochSlot is int && data.qrEpochSlot >= 0 &&
+             data.checkInAt is timestamp && data.checkInAt <= request.time &&
+             data.expiresAt is timestamp &&
+             (!('checkOutAt' in data) || data.checkOutAt == null || (data.checkOutAt is timestamp && data.checkOutAt <= request.time)) &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidAttendanceRejection(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.mode in ['front_desk', 'trainer_scan', 'kiosk_qr'] &&
+             data.reason is string && data.reason.size() >= 1 && data.reason.size() <= 300 &&
+             data.distanceMeters is number && data.distanceMeters >= 0 &&
+             data.gpsAccuracyMeters is number && data.gpsAccuracyMeters >= 0 &&
+             data.createdAt is timestamp && data.createdAt <= request.time;
+    }
+
+    function isValidAuditLog(data) {
+      return data.actorUid is string && data.actorUid.size() >= 1 && data.actorUid.size() <= 128 &&
+             data.actorEmail is string && data.actorEmail.size() <= 160 &&
+             data.action is string && data.action.size() >= 1 && data.action.size() <= 80 &&
+             isOptionalString(data, 'targetUid', 128) &&
+             data.details is string && data.details.size() >= 1 && data.details.size() <= 500 &&
+             data.createdAt is timestamp && data.createdAt <= request.time;
+    }
+
+    // --- Collection Rules ---
+
+    // 1. User Profiles: Owner, Assigned Trainer, or Admin
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (
+        isOwner(userId) ||
+        isStaff() ||
+        (isSignedIn() && existing().assignedTrainerId == request.auth.uid)
+      );
+
+      allow list: if isAdmin() || (isSignedIn() && existing().assignedTrainerId == request.auth.uid);
+
+      allow create: if isValidId(userId) &&
+                       isOwner(userId) &&
+                       incoming().userId == request.auth.uid &&
+                       incoming().role == 'member' &&
+                       incoming().planTier == 'basic' &&
+                       incoming().membershipStatus == 'active' &&
+                       incoming().dpdpConsentAccepted == true &&
+                       incoming().healthWaiverAccepted == true &&
+                       !('assignedTrainerId' in incoming()) &&
+                       incoming().keys().hasAll([
+                         'userId', 'displayName', 'email', 'role', 'planTier', 'membershipStatus',
+                         'onboardingCompleted', 'termsVersion', 'dpdpConsentAccepted',
+                         'healthWaiverAccepted', 'consentAcceptedAt', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'displayName', 'email', 'phone', 'emergencyContact', 'photoUrl',
+                         'role', 'planTier', 'membershipStatus', 'assignedTrainerId',
+                         'onboardingCompleted', 'termsVersion', 'dpdpConsentAccepted',
+                         'healthWaiverAccepted', 'consentAcceptedAt', 'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidUserProfile(incoming());
+
+      allow update: if isValidId(userId) &&
+                       isSignedIn() &&
+                       isValidUserProfile(incoming()) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().keys().hasOnly([
+                         'userId', 'displayName', 'email', 'phone', 'emergencyContact', 'photoUrl',
+                         'role', 'planTier', 'membershipStatus', 'assignedTrainerId',
+                         'onboardingCompleted', 'termsVersion', 'dpdpConsentAccepted',
+                         'healthWaiverAccepted', 'consentAcceptedAt', 'createdAt', 'updatedAt'
+                       ]) &&
+                       (
+                         isAdmin() ||
+                         (
+                           isOwner(userId) &&
+                           incoming().diff(existing()).affectedKeys().hasOnly([
+                             'displayName', 'phone', 'emergencyContact', 'photoUrl',
+                             'onboardingCompleted', 'termsVersion', 'dpdpConsentAccepted',
+                             'healthWaiverAccepted', 'consentAcceptedAt', 'updatedAt'
+                           ])
+                         )
+                       );
+
+      allow delete: if isValidId(userId) && isAdmin();
+    }
+
+    // 2. Admin Registry
+    match /admins/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isAdmin();
+      allow create, update: if isValidId(userId) &&
+                               isAdmin() &&
+                               incoming().userId == userId &&
+                               incoming().keys().hasAll(['userId', 'email', 'grantedBy', 'createdAt']) &&
+                               incoming().keys().hasOnly(['userId', 'email', 'grantedBy', 'createdAt']) &&
+                               isValidAdminGrant(incoming());
+      allow delete: if isValidId(userId) && isAdmin();
+    }
+
+    // 3. Immutable Consent Records
+    match /consents/{consentId} {
+      allow get: if isValidId(consentId) && (isAdmin() || (isSignedIn() && existing().userId == request.auth.uid));
+      allow list: if isAdmin() || (isSignedIn() && existing().userId == request.auth.uid);
+      allow create: if isValidId(consentId) &&
+                       isSignedIn() &&
+                       incoming().userId == request.auth.uid &&
+                       incoming().keys().hasAll(['userId', 'termsVersion', 'dpdpConsentAccepted', 'healthWaiverAccepted', 'acceptedAt', 'createdAt']) &&
+                       incoming().keys().hasOnly(['userId', 'termsVersion', 'dpdpConsentAccepted', 'healthWaiverAccepted', 'acceptedAt', 'createdAt']) &&
+                       isValidConsentRecord(incoming());
+      allow update, delete: if false;
+    }
+
+    // 4. Gym Configuration (Admin-writable, readable by signed-in users)
+    match /gym_config/{configId} {
+      allow get: if isValidId(configId) && isSignedIn();
+      allow list: if false;
+      allow create, update: if isValidId(configId) &&
+                               isAdmin() &&
+                               incoming().keys().hasAll([
+                                 'gymName', 'mapsUrl', 'latitude', 'longitude', 'geofenceRadiusM',
+                                 'maxGpsAccuracyM', 'autoCheckoutHours', 'morningOpen', 'morningClose',
+                                 'eveningOpen', 'eveningClose', 'timezone', 'currency', 'dataRegion',
+                                 'manualStatusOverride', 'updatedAt'
+                               ]) &&
+                               incoming().keys().hasOnly([
+                                 'gymName', 'mapsUrl', 'latitude', 'longitude', 'geofenceRadiusM',
+                                 'maxGpsAccuracyM', 'autoCheckoutHours', 'morningOpen', 'morningClose',
+                                 'eveningOpen', 'eveningClose', 'timezone', 'currency', 'dataRegion',
+                                 'manualStatusOverride', 'maxCapacity', 'updatedAt'
+                               ]) &&
+                               isValidGymConfig(incoming());
+      allow delete: if false;
+    }
+
+    // 5. Public Aggregate Live Status (count + Open/Closed only; no member PII)
+    match /gym_public/{statusId} {
+      allow get: if isValidId(statusId) && isSignedIn();
+      allow list: if false;
+      allow create: if isValidId(statusId) &&
+                       isSignedIn() &&
+                       incoming().keys().hasAll(['inGymCount', 'isOpen', 'statusLabel', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['inGymCount', 'isOpen', 'statusLabel', 'updatedAt']) &&
+                       isValidGymPublicStatus(incoming());
+      allow update: if isValidId(statusId) &&
+                       isSignedIn() &&
+                       isValidGymPublicStatus(incoming()) &&
+                       incoming().keys().hasOnly(['inGymCount', 'isOpen', 'statusLabel', 'updatedAt']) &&
+                       (isAdmin() || incoming().diff(existing()).affectedKeys().hasOnly(['inGymCount', 'updatedAt']));
+      allow delete: if false;
+    }
+
+    // 6. Attendance Records (Production note: lock client writes once Cloud Functions in asia-south1 are deployed)
+    match /attendance/{attendanceId} {
+      allow get: if isValidId(attendanceId) && (isStaff() || (isSignedIn() && existing().userId == request.auth.uid));
+      allow list: if isStaff() || (isSignedIn() && existing().userId == request.auth.uid);
+      allow create: if isValidId(attendanceId) &&
+                       isSignedIn() &&
+                       (isStaff() || incoming().userId == request.auth.uid) &&
+                       incoming().status == 'checked_in' &&
+                       incoming().keys().hasAll([
+                         'userId', 'memberName', 'memberRole', 'mode', 'status', 'distanceMeters',
+                         'gpsAccuracyMeters', 'latitude', 'longitude', 'verifiedByUid',
+                         'qrEpochSlot', 'checkInAt', 'expiresAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'memberName', 'memberRole', 'mode', 'status', 'distanceMeters',
+                         'gpsAccuracyMeters', 'latitude', 'longitude', 'verifiedByUid',
+                         'qrEpochSlot', 'checkInAt', 'expiresAt', 'checkOutAt', 'updatedAt'
+                       ]) &&
+                       isValidAttendanceRecord(incoming());
+      allow update: if isValidId(attendanceId) &&
+                       isSignedIn() &&
+                       isValidAttendanceRecord(incoming()) &&
+                       incoming().userId == existing().userId &&
+                       incoming().checkInAt == existing().checkInAt &&
+                       incoming().mode == existing().mode &&
+                       incoming().keys().hasOnly([
+                         'userId', 'memberName', 'memberRole', 'mode', 'status', 'distanceMeters',
+                         'gpsAccuracyMeters', 'latitude', 'longitude', 'verifiedByUid',
+                         'qrEpochSlot', 'checkInAt', 'expiresAt', 'checkOutAt', 'updatedAt'
+                       ]) &&
+                       (
+                         isAdmin() ||
+                         (
+                           (isStaff() || existing().userId == request.auth.uid) &&
+                           existing().status == 'checked_in' &&
+                           incoming().status in ['checked_out', 'auto_checked_out'] &&
+                           incoming().diff(existing()).affectedKeys().hasOnly(['status', 'checkOutAt', 'updatedAt'])
+                         )
+                       );
+      allow delete: if false;
+    }
+
+    // 7. Attendance Rejection Logs
+    match /attendance_rejections/{rejectionId} {
+      allow get: if isValidId(rejectionId) && (isStaff() || (isSignedIn() && existing().userId == request.auth.uid));
+      allow list: if isStaff() || (isSignedIn() && existing().userId == request.auth.uid);
+      allow create: if isValidId(rejectionId) &&
+                       isSignedIn() &&
+                       (isStaff() || incoming().userId == request.auth.uid) &&
+                       incoming().keys().hasAll(['userId', 'mode', 'reason', 'distanceMeters', 'gpsAccuracyMeters', 'createdAt']) &&
+                       incoming().keys().hasOnly(['userId', 'mode', 'reason', 'distanceMeters', 'gpsAccuracyMeters', 'createdAt']) &&
+                       isValidAttendanceRejection(incoming());
+      allow update, delete: if false;
+    }
+
+    // 8. Immutable Admin Audit Log
+    match /audit_logs/{logId} {
+      allow get: if isValidId(logId) && isAdmin();
+      allow list: if isAdmin();
+      allow create: if isValidId(logId) &&
+                       isAdmin() &&
+                       incoming().actorUid == request.auth.uid &&
+                       incoming().keys().hasAll(['actorUid', 'actorEmail', 'action', 'details', 'createdAt']) &&
+                       incoming().keys().hasOnly(['actorUid', 'actorEmail', 'action', 'targetUid', 'details', 'createdAt']) &&
+                       isValidAuditLog(incoming());
+      allow update, delete: if false;
+    }
+
+    // --- Phase 2: Plans, Payments, Subscriptions & Notifications ---
+
+    function isValidGymPlan(data) {
+      return data.name is string && data.name.size() >= 1 && data.name.size() <= 80 &&
+             data.tier in ['basic', 'premium'] &&
+             data.billingCycle in ['monthly', 'quarterly', 'annual'] &&
+             data.baseAmountInr is int && data.baseAmountInr >= 0 &&
+             data.gstPercent is int && data.gstPercent >= 0 && data.gstPercent <= 50 &&
+             data.totalAmountInr is int && data.totalAmountInr >= 0 &&
+             data.durationDays is int && data.durationDays >= 1 && data.durationDays <= 1095 &&
+             data.supportsOneTime is bool &&
+             data.supportsUpiAutopay is bool &&
+             data.description is string && data.description.size() <= 300 &&
+             data.active is bool &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidPaymentRequest(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.memberName is string && data.memberName.size() >= 1 && data.memberName.size() <= 80 &&
+             data.memberEmail is string && data.memberEmail.size() <= 160 &&
+             data.planId is string && data.planId.size() >= 1 && data.planId.size() <= 80 &&
+             data.planName is string && data.planName.size() >= 1 && data.planName.size() <= 80 &&
+             data.tier in ['basic', 'premium'] &&
+             data.billingCycle in ['monthly', 'quarterly', 'annual'] &&
+             data.paymentMode in ['one_time_order', 'upi_autopay_subscription'] &&
+             data.amountInr is int && data.amountInr > 0 && data.amountInr <= 500000 &&
+             data.currency == 'INR' &&
+             data.preferredUpiApp is string && data.preferredUpiApp.size() <= 60 &&
+             data.status in ['created', 'awaiting_backend_order'] &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidSubscription(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.planId is string && data.planId.size() >= 1 && data.planId.size() <= 80 &&
+             data.planName is string && data.planName.size() >= 1 && data.planName.size() <= 80 &&
+             data.tier in ['basic', 'premium'] &&
+             data.billingCycle in ['monthly', 'quarterly', 'annual'] &&
+             data.paymentMode in ['one_time_order', 'upi_autopay_subscription'] &&
+             data.amountInr is int && data.amountInr >= 0 &&
+             data.status in ['pending_auth', 'active', 'cancellation_requested', 'cancelled', 'expired'] &&
+             data.upiHandle is string && data.upiHandle.size() <= 100 &&
+             data.razorpaySubscriptionId is string && data.razorpaySubscriptionId.size() <= 100 &&
+             data.preDebitNotified is bool &&
+             data.autoRenew is bool &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidPaymentRecord(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.memberName is string && data.memberName.size() >= 1 && data.memberName.size() <= 80 &&
+             data.memberEmail is string && data.memberEmail.size() <= 160 &&
+             data.planId is string && data.planId.size() >= 1 && data.planId.size() <= 80 &&
+             data.planName is string && data.planName.size() >= 1 && data.planName.size() <= 80 &&
+             data.tier in ['basic', 'premium'] &&
+             data.baseAmountInr is int && data.baseAmountInr >= 0 &&
+             data.gstAmountInr is int && data.gstAmountInr >= 0 &&
+             data.totalAmountInr is int && data.totalAmountInr >= 0 &&
+             data.currency == 'INR' &&
+             data.paymentMode in ['one_time_order', 'upi_autopay_subscription'] &&
+             data.razorpayOrderId is string && data.razorpayOrderId.size() <= 100 &&
+             data.razorpayPaymentId is string && data.razorpayPaymentId.size() <= 100 &&
+             data.webhookEventId is string && data.webhookEventId.size() <= 128 &&
+             data.status in ['pending_webhook', 'captured', 'failed', 'refunded'] &&
+             data.invoiceNumber is string && data.invoiceNumber.size() <= 60 &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidNotificationPreference(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.whatsappOptIn is bool &&
+             data.whatsappPhone is string && data.whatsappPhone.size() <= 25 &&
+             data.expiryReminder3d is bool &&
+             data.dueTodayReminder is bool &&
+             data.paymentAlerts is bool &&
+             data.gymClosedAlerts is bool &&
+             data.preDebitAlerts is bool &&
+             data.pushEnabled is bool &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidGymAnnouncement(data) {
+      return data.statusType in ['open', 'closed', 'special_hours', 'holiday'] &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 120 &&
+             data.message is string && data.message.size() >= 1 && data.message.size() <= 500 &&
+             data.effectiveHours is string && data.effectiveHours.size() <= 120 &&
+             data.targetAudience == 'all_members_and_trainers' &&
+             data.sendPushNotification is bool &&
+             data.sendWhatsappClosure is bool &&
+             data.active is bool &&
+             data.createdByUid is string && data.createdByUid.size() >= 1 && data.createdByUid.size() <= 128 &&
+             data.createdByEmail is string && data.createdByEmail.size() <= 160 &&
+             data.createdAt is timestamp && data.createdAt <= request.time;
+    }
+
+    function isValidDeliveryLog(data) {
+      return data.recipientUid is string && data.recipientUid.size() >= 1 && data.recipientUid.size() <= 128 &&
+             data.recipientContact is string && data.recipientContact.size() <= 160 &&
+             data.channel in ['whatsapp', 'fcm_push', 'in_app'] &&
+             data.templateName is string && data.templateName.size() >= 1 && data.templateName.size() <= 80 &&
+             data.status in ['queued', 'sent', 'delivered', 'failed'] &&
+             data.details is string && data.details.size() <= 300 &&
+             data.createdAt is timestamp && data.createdAt <= request.time;
+    }
+
+    // 9. Membership Plans Catalog (Admin-managed, Member-readable)
+    match /plans/{planId} {
+      allow get, list: if isSignedIn();
+      allow create, update: if isValidId(planId) &&
+                               isAdmin() &&
+                               incoming().keys().hasAll([
+                                 'name', 'tier', 'billingCycle', 'baseAmountInr', 'gstPercent',
+                                 'totalAmountInr', 'durationDays', 'supportsOneTime',
+                                 'supportsUpiAutopay', 'description', 'active', 'updatedAt'
+                               ]) &&
+                               incoming().keys().hasOnly([
+                                 'name', 'tier', 'billingCycle', 'baseAmountInr', 'gstPercent',
+                                 'totalAmountInr', 'durationDays', 'supportsOneTime',
+                                 'supportsUpiAutopay', 'description', 'active', 'updatedAt'
+                               ]) &&
+                               isValidGymPlan(incoming());
+      allow delete: if isValidId(planId) && isAdmin();
+    }
+
+    // 10. Checkout / Order Intents (Members can initiate intent ONLY; cannot set paid/captured)
+    match /payment_requests/{requestId} {
+      allow get: if isValidId(requestId) && (isAdmin() || (isSignedIn() && existing().userId == request.auth.uid));
+      allow list: if isAdmin() || (isSignedIn() && existing().userId == request.auth.uid);
+      allow create: if isValidId(requestId) &&
+                       isSignedIn() &&
+                       incoming().userId == request.auth.uid &&
+                       incoming().status == 'created' &&
+                       incoming().keys().hasAll([
+                         'userId', 'memberName', 'memberEmail', 'planId', 'planName', 'tier',
+                         'billingCycle', 'paymentMode', 'amountInr', 'currency',
+                         'preferredUpiApp', 'status', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'memberName', 'memberEmail', 'planId', 'planName', 'tier',
+                         'billingCycle', 'paymentMode', 'amountInr', 'currency',
+                         'preferredUpiApp', 'status', 'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidPaymentRequest(incoming());
+      allow update, delete: if isValidId(requestId) && isAdmin();
+    }
+
+    // 11. Subscriptions & UPI AutoPay Mandates (Member read-only except requesting cancellation)
+    match /subscriptions/{subId} {
+      allow get: if isValidId(subId) && (isAdmin() || (isSignedIn() && existing().userId == request.auth.uid));
+      allow list: if isAdmin() || (isSignedIn() && existing().userId == request.auth.uid);
+      allow create: if isValidId(subId) && isAdmin() && isValidSubscription(incoming());
+      allow update: if isValidId(subId) &&
+                       isValidSubscription(incoming()) &&
+                       incoming().userId == existing().userId &&
+                       (
+                         isAdmin() ||
+                         (
+                           isSignedIn() &&
+                           existing().userId == request.auth.uid &&
+                           incoming().diff(existing()).affectedKeys().hasOnly(['status', 'autoRenew', 'updatedAt']) &&
+                           incoming().status == 'cancellation_requested' &&
+                           incoming().autoRenew == false
+                         )
+                       );
+      allow delete: if false;
+    }
+
+    // 12. Payments & Invoices (Webhook-only in production; members strictly read-only)
+    match /payments/{paymentId} {
+      allow get: if isValidId(paymentId) && (isAdmin() || (isSignedIn() && existing().userId == request.auth.uid));
+      allow list: if isAdmin() || (isSignedIn() && existing().userId == request.auth.uid);
+      allow create, update: if isValidId(paymentId) && isAdmin() && isValidPaymentRecord(incoming());
+      allow delete: if false;
+    }
+
+    // 13. WhatsApp Cloud API & Push Notification Opt-In Preferences
+    match /notification_preferences/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isAdmin();
+      allow create, update: if isValidId(userId) &&
+                               isOwner(userId) &&
+                               incoming().userId == request.auth.uid &&
+                               incoming().keys().hasAll([
+                                 'userId', 'whatsappOptIn', 'whatsappPhone', 'expiryReminder3d',
+                                 'dueTodayReminder', 'paymentAlerts', 'gymClosedAlerts',
+                                 'preDebitAlerts', 'pushEnabled', 'updatedAt'
+                               ]) &&
+                               incoming().keys().hasOnly([
+                                 'userId', 'whatsappOptIn', 'whatsappPhone', 'expiryReminder3d',
+                                 'dueTodayReminder', 'paymentAlerts', 'gymClosedAlerts',
+                                 'preDebitAlerts', 'pushEnabled', 'updatedAt'
+                               ]) &&
+                               isValidNotificationPreference(incoming());
+      allow delete: if false;
+    }
+
+    // 14. Gym Announcements (Open / Closed / Special Hours / Holiday)
+    match /gym_announcements/{announcementId} {
+      allow get, list: if isSignedIn();
+      allow create: if isValidId(announcementId) &&
+                       isAdmin() &&
+                       incoming().createdByUid == request.auth.uid &&
+                       incoming().keys().hasAll([
+                         'statusType', 'title', 'message', 'effectiveHours', 'targetAudience',
+                         'sendPushNotification', 'sendWhatsappClosure', 'active',
+                         'createdByUid', 'createdByEmail', 'createdAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'statusType', 'title', 'message', 'effectiveHours', 'targetAudience',
+                         'sendPushNotification', 'sendWhatsappClosure', 'active',
+                         'createdByUid', 'createdByEmail', 'createdAt'
+                       ]) &&
+                       isValidGymAnnouncement(incoming());
+      allow update: if isValidId(announcementId) &&
+                       isAdmin() &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['active']);
+      allow delete: if isValidId(announcementId) && isAdmin();
+    }
+
+    // 15. Notification Delivery Status Logs (WhatsApp / Push / In-App)
+    match /notification_delivery_logs/{logId} {
+      allow get: if isValidId(logId) && (isAdmin() || (isSignedIn() && existing().recipientUid == request.auth.uid));
+      allow list: if isAdmin() || (isSignedIn() && existing().recipientUid == request.auth.uid);
+      allow create: if isValidId(logId) && isAdmin() && isValidDeliveryLog(incoming());
+      allow update, delete: if false;
+    }
+  }
+}

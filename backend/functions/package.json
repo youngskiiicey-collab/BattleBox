@@ -1,0 +1,16 @@
+{
+  "name": "battle-box-functions",
+  "version": "1.0.0",
+  "description": "Battle Box Phase 2 Cloud Functions (asia-south1) for Razorpay Orders/UPI AutoPay webhooks, WhatsApp Cloud API utility templates, daily IST reminders, and FCM announcements.",
+  "engines": {
+    "node": "20"
+  },
+  "main": "lib/index.js",
+  "dependencies": {
+    "firebase-admin": "^12.6.0",
+    "firebase-functions": "^6.0.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0"
+  }
+}

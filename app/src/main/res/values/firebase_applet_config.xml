@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<resources>
+    <string name="firestore_database_id" translatable="false">ai-studio-android-battlebo-f9f1c6c4-69cd-46ca-9bcc-c54ee93a8e1b</string>
+    <string name="recaptcha_site_key" translatable="false">6Lcctx0uAAAAALyNn5cehEaKXiGcOBfyhkEAxbXV</string>
+</resources>

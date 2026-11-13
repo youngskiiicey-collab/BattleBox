@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <cache-path
+        name="battlebox_invoices"
+        path="invoices/" />
+    <cache-path
+        name="battlebox_exports"
+        path="exports/" />
+</paths>

@@ -1,0 +1,6 @@
+{
+  "name": "Battle Box",
+  "description": "Gym management app for Battle Box featuring Google Sign-In, role-based Member/Trainer/Admin routing, DPDP Act 2023 Terms & Privacy onboarding, rotating QR & geofenced attendance, live gym occupancy, and audit logs.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
