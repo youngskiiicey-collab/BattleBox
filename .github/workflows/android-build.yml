@@ -2,9 +2,9 @@ name: Battle Box Android CI & APK Build
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, ]
   workflow_dispatch:
 
 jobs:
