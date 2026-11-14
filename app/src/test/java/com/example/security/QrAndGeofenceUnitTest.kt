@@ -65,4 +65,25 @@ class QrAndGeofenceUnitTest {
         cal.set(2026, Calendar.NOVEMBER, 12, 18, 30, 0)
         assertTrue(GeofenceUtils.evaluateOpenStatusIst(config, cal.timeInMillis).first)
     }
+
+    @Test
+    fun permanentWallQr_doesNotRotateAndValidatesAcrossFutureTimestamps() {
+        val token1 = QrTokenSigner.generatePermanentWallToken("main")
+        val token2 = QrTokenSigner.generatePermanentWallToken("main")
+        assertEquals(token1, token2)
+        assertTrue(token1.startsWith("BB1|WALL|main|0|"))
+
+        // Still valid 30 days in the future for KIOSK/WALL self check-in
+        val futureMs = 1_700_000_010_000L + 30L * 86_400_000L
+        val validWallRes = QrTokenSigner.verifyToken(token1, QrTokenSigner.KIND_KIOSK, futureMs)
+        assertTrue(validWallRes is QrTokenSigner.VerificationResult.Valid)
+
+        // Rejected for Member Front Desk pass kind
+        val wrongKindRes = QrTokenSigner.verifyToken(token1, QrTokenSigner.KIND_MEMBER, futureMs)
+        assertTrue(wrongKindRes is QrTokenSigner.VerificationResult.Invalid)
+
+        // Tampered signature is rejected
+        val tamperedRes = QrTokenSigner.verifyToken(token1.dropLast(2) + "99", QrTokenSigner.KIND_KIOSK, futureMs)
+        assertTrue(tamperedRes is QrTokenSigner.VerificationResult.Invalid)
+    }
 }

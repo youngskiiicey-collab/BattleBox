@@ -184,6 +184,37 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["actorUid", "actorEmail", "action", "details", "createdAt"]
+    },
+    "Phase3BillingConfig": {
+      "title": "Phase3BillingConfig",
+      "description": "Phase 3 payment gateway and UPI AutoPay mandate integration configuration (public Key ID only; secrets stay in Cloud Secret Manager).",
+      "type": "object",
+      "properties": {
+        "gatewayProvider": { "type": "string", "enum": ["razorpay", "cashfree", "phonepe_pg"] },
+        "environmentMode": { "type": "string", "enum": ["sandbox", "production_ready"] },
+        "razorpayKeyId": { "type": "string" },
+        "upiAutoPayMandateEnabled": { "type": "boolean" },
+        "supportedUpiApps": { "type": "string" },
+        "preDebitLeadHours": { "type": "integer" },
+        "gracePeriodDays": { "type": "integer" },
+        "autoRetryFailedDebits": { "type": "boolean" },
+        "webhookEndpointUrl": { "type": "string" },
+        "futureFinanceModulesEnabled": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "gatewayProvider",
+        "environmentMode",
+        "razorpayKeyId",
+        "upiAutoPayMandateEnabled",
+        "supportedUpiApps",
+        "preDebitLeadHours",
+        "gracePeriodDays",
+        "autoRetryFailedDebits",
+        "webhookEndpointUrl",
+        "futureFinanceModulesEnabled",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
@@ -246,6 +277,10 @@
     "/notification_delivery_logs/{logId}": {
       "schema": { "type": "object" },
       "description": "WhatsApp Cloud API and push notification delivery-status audit logs."
+    },
+    "/billing_config/{configId}": {
+      "schema": { "$ref": "#/entities/Phase3BillingConfig" },
+      "description": "Phase 3 payment gateway and UPI AutoPay readiness configuration."
     }
   }
 }

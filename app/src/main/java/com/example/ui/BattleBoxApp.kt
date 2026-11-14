@@ -206,6 +206,9 @@ private fun AuthenticatedBattleBoxShell(
     val auditLogs by viewModel.auditLogs.collectAsStateWithLifecycle()
     val assignedMembers by viewModel.assignedMembers.collectAsStateWithLifecycle()
     val plans by viewModel.plans.collectAsStateWithLifecycle()
+    val adminPlans by viewModel.adminPlans.collectAsStateWithLifecycle()
+    val allSubscriptions by viewModel.allSubscriptions.collectAsStateWithLifecycle()
+    val billingConfig by viewModel.billingConfig.collectAsStateWithLifecycle()
     val myPaymentRequests by viewModel.myPaymentRequests.collectAsStateWithLifecycle()
     val allPaymentRequests by viewModel.allPaymentRequests.collectAsStateWithLifecycle()
     val mySubscriptions by viewModel.mySubscriptions.collectAsStateWithLifecycle()
@@ -225,6 +228,8 @@ private fun AuthenticatedBattleBoxShell(
     var deviceFix by remember { mutableStateOf<DeviceFix?>(null) }
     var showConcierge by remember { mutableStateOf(false) }
     var lastNotifiedAnnId by remember { mutableStateOf<String?>(null) }
+    val seenSelfCheckInIds = remember(viewModel.currentUserId) { mutableSetOf<String>() }
+    var selfCheckInBaselineReady by remember(viewModel.currentUserId) { mutableStateOf(false) }
 
     LaunchedEffect(announcements.firstOrNull()?.id) {
         val latest = announcements.firstOrNull()
@@ -361,6 +366,33 @@ private fun AuthenticatedBattleBoxShell(
 
                 val isStaffRole = resolvedDestination == RoleDashboardDestination.TRAINER_HOME ||
                     resolvedDestination == RoleDashboardDestination.ADMIN_HOME
+
+                // Real-time Wall QR self check-in notification alerts on Trainer & Admin UI
+                LaunchedEffect(liveRoster, isStaffRole) {
+                    if (!isStaffRole) return@LaunchedEffect
+                    val kioskRecords = liveRoster.filter { it.mode == AttendanceRecord.MODE_KIOSK_QR }
+                    if (!selfCheckInBaselineReady) {
+                        seenSelfCheckInIds.addAll(kioskRecords.map { it.id })
+                        selfCheckInBaselineReady = true
+                    } else {
+                        val newArrivals = kioskRecords.filter { it.id !in seenSelfCheckInIds }
+                        if (newArrivals.isNotEmpty()) {
+                            newArrivals.forEach { rec ->
+                                seenSelfCheckInIds.add(rec.id)
+                                BattleBoxNotificationHelper.showSelfCheckInAlertNotification(
+                                    context = context,
+                                    attendanceId = rec.id,
+                                    memberName = rec.memberName,
+                                    distanceMeters = rec.distanceMeters
+                                )
+                            }
+                            val latest = newArrivals.first()
+                            viewModel.showBanner(
+                                "Wall QR Self Check-In: ${latest.memberName} (${latest.distanceMeters.toInt()}m GPS)"
+                            )
+                        }
+                    }
+                }
 
                 val tabs = remember(roleHomeTab.route, isStaffRole) {
                     buildList {
@@ -586,6 +618,9 @@ private fun AuthenticatedBattleBoxShell(
                                             announcements = announcements,
                                             paymentRequests = allPaymentRequests,
                                             deliveryLogs = deliveryLogs,
+                                            plans = adminPlans,
+                                            allSubscriptions = allSubscriptions,
+                                            billingConfig = billingConfig,
                                             deviceFix = deviceFix,
                                             monthlyExportState = monthlyExportState,
                                             isBusy = isBusy,
@@ -602,6 +637,18 @@ private fun AuthenticatedBattleBoxShell(
                                             onUpdateUser = { userToEdit, role, plan, status, trainerId ->
                                                 viewModel.adminUpdateUser(userToEdit, role, plan, status, trainerId)
                                             },
+                                            onUpdateUserFull = { userToEdit, role, plan, status, trainerId, name, phone, emergency ->
+                                                viewModel.adminUpdateUser(
+                                                    targetUser = userToEdit,
+                                                    newRole = role,
+                                                    newPlanTier = plan,
+                                                    newMembershipStatus = status,
+                                                    newAssignedTrainerId = trainerId,
+                                                    newDisplayName = name,
+                                                    newPhone = phone,
+                                                    newEmergencyContact = emergency
+                                                )
+                                            },
                                             onUpdateGymConfig = { updated ->
                                                 viewModel.updateGymConfig(updated)
                                             },
@@ -615,9 +662,16 @@ private fun AuthenticatedBattleBoxShell(
                                                 viewModel.adminDeactivateAnnouncement(annId)
                                             },
                                             onSeedDefaultPlans = { viewModel.adminSeedDefaultPlans() },
+                                            onSavePlan = { plan -> viewModel.adminSavePlan(plan) },
+                                            onSaveSubscription = { sub -> viewModel.adminSaveSubscription(sub) },
+                                            onUpdatePaymentRequest = { req -> viewModel.adminUpdatePaymentRequest(req) },
+                                            onDeletePaymentRequest = { reqId, name ->
+                                                viewModel.adminDeletePaymentRequest(reqId, name)
+                                            },
                                             onReconcileSandboxPayment = { req ->
                                                 viewModel.adminReconcileSandboxPayment(req)
                                             },
+                                            onSaveBillingConfig = { cfg -> viewModel.adminSaveBillingConfig(cfg) },
                                             onCopyMessage = { msg -> viewModel.showBanner(msg) }
                                         )
                                     }
@@ -647,6 +701,7 @@ private fun AuthenticatedBattleBoxShell(
                                             paymentRequests = myPaymentRequests,
                                             payments = myPayments,
                                             notificationPref = notificationPref,
+                                            billingConfig = billingConfig,
                                             isBusy = isBusy,
                                             onCreateCheckoutIntent = { plan, mode, upiApp ->
                                                 viewModel.createCheckoutIntent(effectiveProfile, plan, mode, upiApp)

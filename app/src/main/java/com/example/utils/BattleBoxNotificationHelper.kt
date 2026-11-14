@@ -14,6 +14,7 @@ import com.example.R
 object BattleBoxNotificationHelper {
     const val CHANNEL_ANNOUNCEMENTS = "battlebox_announcements"
     const val CHANNEL_BILLING = "battlebox_billing_reminders"
+    const val CHANNEL_SELF_CHECKIN = "battlebox_self_checkin"
 
     fun ensureChannels(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -32,8 +33,16 @@ object BattleBoxNotificationHelper {
             ).apply {
                 description = "UPI AutoPay 24h pre-debit notices, plan expiry alerts, and payment updates."
             }
+            val selfCheckInChannel = NotificationChannel(
+                CHANNEL_SELF_CHECKIN,
+                "Wall QR Self Check-In Alerts",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Instant alerts for Trainers and Admin when members self check-in via Battle Box Wall QR."
+            }
             manager.createNotificationChannel(announcementsChannel)
             manager.createNotificationChannel(billingChannel)
+            manager.createNotificationChannel(selfCheckInChannel)
         }
     }
 
@@ -84,5 +93,25 @@ object BattleBoxNotificationHelper {
             .setAutoCancel(true)
             .build()
         NotificationManagerCompat.from(context).notify(idSeed.hashCode(), notification)
+    }
+
+    fun showSelfCheckInAlertNotification(
+        context: Context,
+        attendanceId: String,
+        memberName: String,
+        distanceMeters: Double
+    ) {
+        if (!hasNotificationPermission(context)) return
+        ensureChannels(context)
+        val body = "$memberName checked in via Wall QR (${distanceMeters.toInt()}m GPS geofence verified)."
+        val notification = NotificationCompat.Builder(context, CHANNEL_SELF_CHECKIN)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle("Battle Box Wall QR Check-In")
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .build()
+        NotificationManagerCompat.from(context).notify(("checkin_$attendanceId").hashCode(), notification)
     }
 }

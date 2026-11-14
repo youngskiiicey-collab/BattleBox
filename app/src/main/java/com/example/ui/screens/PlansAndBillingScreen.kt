@@ -58,7 +58,9 @@ import com.example.data.model.MemberSubscription
 import com.example.data.model.NotificationPreference
 import com.example.data.model.PaymentRecord
 import com.example.data.model.PaymentRequest
+import com.example.data.model.Phase3BillingConfig
 import com.example.data.model.UserProfile
+import com.example.ui.components.MemberPhase3AutopayBanner
 import com.example.utils.BattleBoxNotificationHelper
 import com.example.utils.InvoicePdfGenerator
 import java.text.SimpleDateFormat
@@ -74,6 +76,7 @@ fun PlansAndBillingScreen(
     paymentRequests: List<PaymentRequest>,
     payments: List<PaymentRecord>,
     notificationPref: NotificationPreference,
+    billingConfig: Phase3BillingConfig = Phase3BillingConfig(),
     isBusy: Boolean,
     onCreateCheckoutIntent: (GymPlan, String, String) -> Unit,
     onCancelAutopay: (String) -> Unit,
@@ -259,6 +262,8 @@ fun PlansAndBillingScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
+
+                    MemberPhase3AutopayBanner(billingConfig = billingConfig)
                 }
             }
 

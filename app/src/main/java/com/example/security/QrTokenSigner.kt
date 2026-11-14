@@ -14,6 +14,7 @@ object QrTokenSigner {
     private const val PREFIX = "BB1"
     const val KIND_MEMBER = "MEMBER"
     const val KIND_KIOSK = "KIOSK"
+    const val KIND_WALL_STATIC = "WALL"
 
     // Phase 1 Note: When Cloud Functions in asia-south1 are deployed, move signing & verification
     // to Cloud Secret Manager so the HMAC key is never shipped in client binaries.
@@ -52,6 +53,16 @@ object QrTokenSigner {
         return "$PREFIX|$KIND_KIOSK|$gymId|$slot|$sig"
     }
 
+    /**
+     * Generates a permanent (non-rotating) signed Battle Box Wall QR token
+     * so Admins can print and paste it inside the gym for geofenced member/trainer self check-in.
+     */
+    fun generatePermanentWallToken(gymId: String = "main"): String {
+        val slot = 0L
+        val sig = computeSignature(KIND_WALL_STATIC, gymId, slot)
+        return "$PREFIX|$KIND_WALL_STATIC|$gymId|$slot|$sig"
+    }
+
     fun verifyToken(
         rawPayload: String,
         expectedKind: String,
@@ -67,7 +78,8 @@ object QrTokenSigner {
             ?: return VerificationResult.Invalid("Invalid QR timestamp slot.")
         val sigHex = parts[4]
 
-        if (kind != expectedKind) {
+        val isAcceptableWallStatic = expectedKind == KIND_KIOSK && kind == KIND_WALL_STATIC
+        if (kind != expectedKind && !isAcceptableWallStatic) {
             return VerificationResult.Invalid(
                 "Wrong QR type: expected $expectedKind pass, scanned $kind."
             )
@@ -83,6 +95,20 @@ object QrTokenSigner {
         )
         if (!sigMatches) {
             return VerificationResult.Invalid("QR signature verification failed (tampered token).")
+        }
+
+        if (kind == KIND_WALL_STATIC) {
+            if (slot != 0L) {
+                return VerificationResult.Invalid("Invalid permanent wall QR slot.")
+            }
+            return VerificationResult.Valid(
+                ParsedQrToken(
+                    kind = kind,
+                    subjectId = subjectId,
+                    epochSlot = slot,
+                    signatureHex = sigHex
+                )
+            )
         }
 
         val currentSlot = currentEpochSlot(nowMillis)

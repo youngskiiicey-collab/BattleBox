@@ -460,3 +460,100 @@ test("Trainer QR Attendance Scanner & Live Occupancy: trainer can scan member QR
   await assertSucceeds(aliceDb.collection("attendance").doc("att_trainer_scan_1").get());
 });
 
+test("Admin editable plans, pending pay, subscriptions & Phase 3 billing config enforce Admin-only writes", async () => {
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const adminDb = testEnv.authenticatedContext(ADMIN_UID, {
+    email: ADMIN_EMAIL,
+    email_verified: true,
+  }).firestore();
+  const now = new Date(Date.now() - 500);
+
+  // Admin creates and edits a plan; Member cannot write plans
+  const planPayload = {
+    name: "Combat Pro Monthly",
+    tier: "premium",
+    billingCycle: "monthly",
+    baseAmountInr: 2542,
+    gstPercent: 18,
+    totalAmountInr: 2999,
+    durationDays: 30,
+    supportsOneTime: true,
+    supportsUpiAutopay: true,
+    description: "Includes Combat Conditioning + AutoPay",
+    active: true,
+    updatedAt: now,
+  };
+  await assertFails(aliceDb.collection("plans").doc("combat_pro").set(planPayload));
+  await assertSucceeds(adminDb.collection("plans").doc("combat_pro").set(planPayload));
+  await assertSucceeds(aliceDb.collection("plans").get());
+
+  // Member initiates pending payment; Admin can edit amount/status or delete; Member cannot update or delete
+  await assertSucceeds(
+    aliceDb.collection("payment_requests").doc("req_edit_1").set({
+      userId: ALICE_UID,
+      memberName: "Alice",
+      memberEmail: "alice@example.com",
+      planId: "combat_pro",
+      planName: "Combat Pro Monthly",
+      tier: "premium",
+      billingCycle: "monthly",
+      paymentMode: "upi_autopay_subscription",
+      amountInr: 2999,
+      currency: "INR",
+      preferredUpiApp: "Google Pay",
+      status: "created",
+      createdAt: now,
+      updatedAt: now,
+    })
+  );
+  await assertFails(
+    aliceDb.collection("payment_requests").doc("req_edit_1").update({ amountInr: 1, updatedAt: now })
+  );
+  await assertSucceeds(
+    adminDb.collection("payment_requests").doc("req_edit_1").update({
+      amountInr: 2499,
+      status: "awaiting_backend_order",
+      updatedAt: now,
+    })
+  );
+
+  // Admin creates/edits subscription; Member cannot grant self active subscription
+  await assertSucceeds(
+    adminDb.collection("subscriptions").doc("sub_alice_custom").set({
+      userId: ALICE_UID,
+      planId: "combat_pro",
+      planName: "Combat Pro Monthly",
+      tier: "premium",
+      billingCycle: "monthly",
+      paymentMode: "upi_autopay_subscription",
+      amountInr: 2499,
+      status: "active",
+      upiHandle: "Admin Managed",
+      razorpaySubscriptionId: "sub_admin_1",
+      preDebitNotified: false,
+      autoRenew: true,
+      updatedAt: now,
+    })
+  );
+
+  // Phase 3 Billing Config: Admin writes, Member can read get('billing_config/main'), cannot write or list
+  const p3Config = {
+    gatewayProvider: "razorpay",
+    environmentMode: "sandbox",
+    razorpayKeyId: "rzp_test_123456",
+    upiAutoPayMandateEnabled: true,
+    supportedUpiApps: "Google Pay, PhonePe, Paytm",
+    preDebitLeadHours: 24,
+    gracePeriodDays: 3,
+    autoRetryFailedDebits: true,
+    webhookEndpointUrl: "https://asia-south1-demo.cloudfunctions.net/razorpayWebhook",
+    futureFinanceModulesEnabled: true,
+    updatedAt: now,
+  };
+  await assertFails(aliceDb.collection("billing_config").doc("main").set(p3Config));
+  await assertSucceeds(adminDb.collection("billing_config").doc("main").set(p3Config));
+  await assertSucceeds(aliceDb.collection("billing_config").doc("main").get());
+  await assertFails(aliceDb.collection("billing_config").get());
+});
+
+

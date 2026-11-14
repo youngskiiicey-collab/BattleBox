@@ -17,6 +17,7 @@ import com.example.data.model.NotificationDeliveryLog
 import com.example.data.model.NotificationPreference
 import com.example.data.model.PaymentRecord
 import com.example.data.model.PaymentRequest
+import com.example.data.model.Phase3BillingConfig
 import com.example.data.model.UiState
 import com.example.data.model.UserProfile
 import com.example.data.repository.BattleBoxRepository
@@ -234,6 +235,40 @@ class BattleBoxViewModel(
                 emit(GymPlan.defaultSeedPlans())
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), GymPlan.defaultSeedPlans())
+
+    val adminPlans: StateFlow<List<GymPlan>> =
+        userProfileState.flatMapLatest { state ->
+            val profile = (state as? UiState.Success)?.data
+            if (profile != null && (profile.role == UserProfile.ROLE_ADMIN || isBootstrappedOwner)) {
+                phase2Repository.observeAllPlansForAdmin().catch { error ->
+                    if (unwrapFirestore(error) == null && error is CancellationException) throw error
+                    emit(GymPlan.defaultSeedPlans())
+                }
+            } else {
+                flowOf(GymPlan.defaultSeedPlans())
+            }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), GymPlan.defaultSeedPlans())
+
+    val allSubscriptions: StateFlow<List<MemberSubscription>> =
+        userProfileState.flatMapLatest { state ->
+            val profile = (state as? UiState.Success)?.data
+            if (profile != null && (profile.role == UserProfile.ROLE_ADMIN || isBootstrappedOwner)) {
+                phase2Repository.observeAllSubscriptions().catch { error ->
+                    if (unwrapFirestore(error) == null && error is CancellationException) throw error
+                    emit(emptyList())
+                }
+            } else {
+                flowOf(emptyList())
+            }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), emptyList())
+
+    val billingConfig: StateFlow<Phase3BillingConfig> =
+        phase2Repository.observeBillingConfig()
+            .catch { error ->
+                if (unwrapFirestore(error) == null && error is CancellationException) throw error
+                emit(Phase3BillingConfig())
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), Phase3BillingConfig())
 
     val myPaymentRequests: StateFlow<List<PaymentRequest>> =
         phase2Repository.observeMyPaymentRequests(currentUserId)
@@ -464,7 +499,10 @@ class BattleBoxViewModel(
         newRole: String,
         newPlanTier: String,
         newMembershipStatus: String,
-        newAssignedTrainerId: String?
+        newAssignedTrainerId: String?,
+        newDisplayName: String = targetUser.displayName,
+        newPhone: String? = targetUser.phone,
+        newEmergencyContact: String? = targetUser.emergencyContact
     ) {
         viewModelScope.launch {
             _isBusy.value = true
@@ -473,13 +511,16 @@ class BattleBoxViewModel(
                 newRole = newRole,
                 newPlanTier = newPlanTier,
                 newMembershipStatus = newMembershipStatus,
-                newAssignedTrainerId = newAssignedTrainerId
+                newAssignedTrainerId = newAssignedTrainerId,
+                newDisplayName = newDisplayName,
+                newPhone = newPhone,
+                newEmergencyContact = newEmergencyContact
             )
             _isBusy.value = false
             res.onFailure {
                 _actionBanner.value = it.localizedMessage ?: "Failed to update user."
             }.onSuccess {
-                _actionBanner.value = "Updated ${targetUser.displayName} (audit logged)."
+                _actionBanner.value = "Updated ${newDisplayName.ifBlank { targetUser.displayName }} (audit logged)."
             }
         }
     }
@@ -623,6 +664,71 @@ class BattleBoxViewModel(
                 _actionBanner.value = it.localizedMessage ?: "Failed to reconcile sandbox webhook."
             }.onSuccess {
                 _actionBanner.value = "Admin sandbox invoice & plan tier reconciled (audit logged)."
+            }
+        }
+    }
+
+    fun adminSavePlan(plan: GymPlan) {
+        viewModelScope.launch {
+            _isBusy.value = true
+            val res = phase2Repository.adminSavePlan(plan)
+            _isBusy.value = false
+            res.onFailure {
+                _actionBanner.value = it.localizedMessage ?: "Failed to save membership plan."
+            }.onSuccess {
+                _actionBanner.value = "Saved plan '${plan.name}' (₹${plan.totalAmountInr} INR)."
+            }
+        }
+    }
+
+    fun adminSaveSubscription(subscription: MemberSubscription) {
+        viewModelScope.launch {
+            _isBusy.value = true
+            val res = phase2Repository.adminSaveSubscription(subscription)
+            _isBusy.value = false
+            res.onFailure {
+                _actionBanner.value = it.localizedMessage ?: "Failed to update membership subscription."
+            }.onSuccess {
+                _actionBanner.value = "Updated membership '${subscription.planName}' & synced access."
+            }
+        }
+    }
+
+    fun adminUpdatePaymentRequest(request: PaymentRequest) {
+        viewModelScope.launch {
+            _isBusy.value = true
+            val res = phase2Repository.adminUpdatePaymentRequest(request)
+            _isBusy.value = false
+            res.onFailure {
+                _actionBanner.value = it.localizedMessage ?: "Failed to update pending payment."
+            }.onSuccess {
+                _actionBanner.value = "Updated pending pay for ${request.memberName} (₹${request.amountInr})."
+            }
+        }
+    }
+
+    fun adminDeletePaymentRequest(requestId: String, memberName: String) {
+        viewModelScope.launch {
+            _isBusy.value = true
+            val res = phase2Repository.adminDeletePaymentRequest(requestId, memberName)
+            _isBusy.value = false
+            res.onFailure {
+                _actionBanner.value = it.localizedMessage ?: "Failed to remove pending payment."
+            }.onSuccess {
+                _actionBanner.value = "Removed pending pay for $memberName."
+            }
+        }
+    }
+
+    fun adminSaveBillingConfig(config: Phase3BillingConfig) {
+        viewModelScope.launch {
+            _isBusy.value = true
+            val res = phase2Repository.adminSaveBillingConfig(config)
+            _isBusy.value = false
+            res.onFailure {
+                _actionBanner.value = it.localizedMessage ?: "Failed to save Phase 3 billing config."
+            }.onSuccess {
+                _actionBanner.value = "Saved Phase 3 ${config.gatewayProvider} & AutoPay config."
             }
         }
     }

@@ -243,3 +243,28 @@ data class NotificationDeliveryLog(
         const val STATUS_FAILED = "failed"
     }
 }
+
+@IgnoreExtraProperties
+data class Phase3BillingConfig(
+    @DocumentId val id: String = "main",
+    val gatewayProvider: String = GATEWAY_RAZORPAY, // razorpay | cashfree | phonepe_pg
+    val environmentMode: String = ENV_SANDBOX, // sandbox | production_ready
+    val razorpayKeyId: String = "", // Public Key ID only (never store key_secret on client/Firestore)
+    val upiAutoPayMandateEnabled: Boolean = true,
+    val supportedUpiApps: String = "Google Pay, PhonePe, Paytm, BHIM",
+    val preDebitLeadHours: Long = 24L,
+    val gracePeriodDays: Long = 3L,
+    val autoRetryFailedDebits: Boolean = true,
+    val webhookEndpointUrl: String = "https://asia-south1-gen-lang-client-0270493025.cloudfunctions.net/razorpayWebhook",
+    val futureFinanceModulesEnabled: Boolean = true,
+    @ServerTimestamp val updatedAt: Timestamp? = null
+) {
+    companion object {
+        const val GATEWAY_RAZORPAY = "razorpay"
+        const val GATEWAY_CASHFREE = "cashfree"
+        const val GATEWAY_PHONEPE = "phonepe_pg"
+
+        const val ENV_SANDBOX = "sandbox"
+        const val ENV_PRODUCTION_READY = "production_ready"
+    }
+}

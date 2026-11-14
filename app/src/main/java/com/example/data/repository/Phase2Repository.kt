@@ -7,6 +7,7 @@ import com.example.data.model.NotificationDeliveryLog
 import com.example.data.model.NotificationPreference
 import com.example.data.model.PaymentRecord
 import com.example.data.model.PaymentRequest
+import com.example.data.model.Phase3BillingConfig
 import com.example.data.model.UserProfile
 import com.google.firebase.Firebase
 import com.google.firebase.Timestamp
@@ -44,6 +45,50 @@ class Phase2Repository(
             .catch { error ->
                 if (error is CancellationException && error.cause == null) throw error
                 handleFirestoreError(error, OperationType.LIST, "plans")
+                throw error
+            }
+
+    fun observeAllPlansForAdmin(): Flow<List<GymPlan>> =
+        db.collection("plans")
+            .snapshots()
+            .map { snapshot ->
+                val list = snapshot.toObjects(GymPlan::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
+                list.ifEmpty { GymPlan.defaultSeedPlans() }
+                    .sortedWith(compareBy<GymPlan> { it.tier }.thenBy { it.durationDays })
+            }
+            .catch { error ->
+                if (error is CancellationException && error.cause == null) throw error
+                handleFirestoreError(error, OperationType.LIST, "plans")
+                throw error
+            }
+
+    fun observeAllSubscriptions(): Flow<List<MemberSubscription>> =
+        db.collection("subscriptions")
+            .snapshots()
+            .map { snapshot ->
+                snapshot.toObjects(MemberSubscription::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
+                    .sortedByDescending { it.updatedAt ?: Timestamp(0, 0) }
+            }
+            .catch { error ->
+                if (error is CancellationException && error.cause == null) throw error
+                handleFirestoreError(error, OperationType.LIST, "subscriptions")
+                throw error
+            }
+
+    fun observeBillingConfig(): Flow<Phase3BillingConfig> =
+        db.collection("billing_config").document("main")
+            .snapshots()
+            .map { snapshot ->
+                if (snapshot.exists()) {
+                    snapshot.toObject(Phase3BillingConfig::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
+                        ?: Phase3BillingConfig()
+                } else {
+                    Phase3BillingConfig()
+                }
+            }
+            .catch { error ->
+                if (error is CancellationException && error.cause == null) throw error
+                handleFirestoreError(error, OperationType.GET, "billing_config/main")
                 throw error
             }
 
@@ -414,6 +459,176 @@ class Phase2Repository(
             throw e
         } catch (e: Exception) {
             handleFirestoreError(e, OperationType.WRITE, "payments/$payId")
+            throw e
+        }
+    }
+
+    suspend fun adminSavePlan(plan: GymPlan): Result<Unit> = runCatching {
+        requireUid()
+        val docId = plan.id.ifBlank {
+            "${plan.tier}_${plan.billingCycle}_${UUID.randomUUID().toString().replace("-", "").take(6)}"
+        }.replace(Regex("[^a-zA-Z0-9_-]"), "_")
+        val safeBase = plan.baseAmountInr.coerceAtLeast(0L)
+        val safeGst = plan.gstPercent.coerceIn(0L, 50L)
+        val safeTotal = if (plan.totalAmountInr > 0L) plan.totalAmountInr else safeBase + (safeBase * safeGst / 100L)
+        val payload = mapOf(
+            "name" to plan.name.trim().ifBlank { "Battle Box Plan" }.take(80),
+            "tier" to if (plan.tier == UserProfile.PLAN_PREMIUM) UserProfile.PLAN_PREMIUM else UserProfile.PLAN_BASIC,
+            "billingCycle" to plan.billingCycle,
+            "baseAmountInr" to safeBase,
+            "gstPercent" to safeGst,
+            "totalAmountInr" to safeTotal,
+            "durationDays" to plan.durationDays.coerceIn(1L, 1095L),
+            "supportsOneTime" to plan.supportsOneTime,
+            "supportsUpiAutopay" to plan.supportsUpiAutopay,
+            "description" to plan.description.trim().take(300),
+            "active" to plan.active,
+            "updatedAt" to FieldValue.serverTimestamp()
+        )
+        try {
+            db.collection("plans").document(docId).set(payload).await()
+            coreRepository.writeAuditLog(
+                action = "PLAN_SAVED",
+                targetUid = null,
+                details = "Saved plan ${payload["name"]} (INR $safeTotal, ${payload["tier"]}, active=${plan.active})"
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.WRITE, "plans/$docId")
+            throw e
+        }
+    }
+
+    suspend fun adminSaveSubscription(
+        subscription: MemberSubscription,
+        syncUserMembershipStatus: String? = null
+    ): Result<Unit> = runCatching {
+        requireUid()
+        val subId = subscription.id.ifBlank {
+            "sub_${subscription.userId.take(10)}_${subscription.planId.take(16)}"
+        }
+        val payload = mutableMapOf<String, Any>(
+            "userId" to subscription.userId,
+            "planId" to subscription.planId.ifBlank { "custom_plan" }.take(80),
+            "planName" to subscription.planName.trim().ifBlank { "Custom Membership" }.take(80),
+            "tier" to if (subscription.tier == UserProfile.PLAN_PREMIUM) UserProfile.PLAN_PREMIUM else UserProfile.PLAN_BASIC,
+            "billingCycle" to subscription.billingCycle,
+            "paymentMode" to subscription.paymentMode,
+            "amountInr" to subscription.amountInr.coerceAtLeast(0L),
+            "status" to subscription.status,
+            "upiHandle" to subscription.upiHandle.trim().take(100),
+            "razorpaySubscriptionId" to subscription.razorpaySubscriptionId.trim().take(100),
+            "preDebitNotified" to subscription.preDebitNotified,
+            "autoRenew" to subscription.autoRenew,
+            "updatedAt" to FieldValue.serverTimestamp()
+        )
+        subscription.nextDebitAt?.let { payload["nextDebitAt"] = it }
+        subscription.preDebitReminderAt?.let { payload["preDebitReminderAt"] = it }
+        subscription.currentPeriodEnd?.let { payload["currentPeriodEnd"] = it }
+
+        try {
+            db.collection("subscriptions").document(subId).set(payload, SetOptions.merge()).await()
+            val mappedMemberStatus = syncUserMembershipStatus ?: when (subscription.status) {
+                MemberSubscription.STATUS_ACTIVE -> UserProfile.STATUS_ACTIVE
+                MemberSubscription.STATUS_EXPIRED, MemberSubscription.STATUS_CANCELLED -> UserProfile.STATUS_EXPIRED
+                else -> UserProfile.STATUS_ACTIVE
+            }
+            db.collection("users").document(subscription.userId).update(
+                mapOf(
+                    "planTier" to payload["tier"] as String,
+                    "membershipStatus" to mappedMemberStatus,
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+            ).await()
+            coreRepository.writeAuditLog(
+                action = "MEMBERSHIP_SUBSCRIPTION_UPDATED",
+                targetUid = subscription.userId,
+                details = "Updated subscription ${payload["planName"]} (${subscription.status}, INR ${subscription.amountInr}, autoRenew=${subscription.autoRenew})"
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.WRITE, "subscriptions/$subId")
+            throw e
+        }
+    }
+
+    suspend fun adminUpdatePaymentRequest(request: PaymentRequest): Result<Unit> = runCatching {
+        requireUid()
+        val ref = db.collection("payment_requests").document(request.id)
+        val payload = mapOf(
+            "planId" to request.planId.take(80),
+            "planName" to request.planName.trim().ifBlank { request.planId }.take(80),
+            "tier" to request.tier,
+            "billingCycle" to request.billingCycle,
+            "paymentMode" to request.paymentMode,
+            "amountInr" to request.amountInr.coerceIn(1L, 500_000L),
+            "currency" to "INR",
+            "preferredUpiApp" to request.preferredUpiApp.trim().take(60),
+            "status" to request.status,
+            "updatedAt" to FieldValue.serverTimestamp()
+        )
+        try {
+            ref.update(payload).await()
+            coreRepository.writeAuditLog(
+                action = "PENDING_PAYMENT_EDITED",
+                targetUid = request.userId,
+                details = "Edited pending pay ${request.id} (${request.memberName}): INR ${request.amountInr}, mode=${request.paymentMode}, status=${request.status}"
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.UPDATE, ref.path)
+            throw e
+        }
+    }
+
+    suspend fun adminDeletePaymentRequest(requestId: String, memberName: String): Result<Unit> = runCatching {
+        requireUid()
+        val ref = db.collection("payment_requests").document(requestId)
+        try {
+            ref.delete().await()
+            coreRepository.writeAuditLog(
+                action = "PENDING_PAYMENT_DELETED",
+                targetUid = null,
+                details = "Removed pending payment intent $requestId ($memberName)"
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.DELETE, ref.path)
+            throw e
+        }
+    }
+
+    suspend fun adminSaveBillingConfig(config: Phase3BillingConfig): Result<Unit> = runCatching {
+        requireUid()
+        val ref = db.collection("billing_config").document("main")
+        val payload = mapOf(
+            "gatewayProvider" to config.gatewayProvider,
+            "environmentMode" to config.environmentMode,
+            "razorpayKeyId" to config.razorpayKeyId.trim().take(80),
+            "upiAutoPayMandateEnabled" to config.upiAutoPayMandateEnabled,
+            "supportedUpiApps" to config.supportedUpiApps.trim().ifBlank { "Google Pay, PhonePe, Paytm, BHIM" }.take(160),
+            "preDebitLeadHours" to config.preDebitLeadHours.coerceIn(1L, 168L),
+            "gracePeriodDays" to config.gracePeriodDays.coerceIn(0L, 30L),
+            "autoRetryFailedDebits" to config.autoRetryFailedDebits,
+            "webhookEndpointUrl" to config.webhookEndpointUrl.trim().take(300),
+            "futureFinanceModulesEnabled" to config.futureFinanceModulesEnabled,
+            "updatedAt" to FieldValue.serverTimestamp()
+        )
+        try {
+            ref.set(payload, SetOptions.merge()).await()
+            coreRepository.writeAuditLog(
+                action = "PHASE3_BILLING_CONFIG_UPDATED",
+                targetUid = null,
+                details = "Updated Phase 3 gateway=${config.gatewayProvider}, env=${config.environmentMode}, autopay=${config.upiAutoPayMandateEnabled}, preDebit=${config.preDebitLeadHours}h"
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.WRITE, ref.path)
             throw e
         }
     }

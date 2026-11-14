@@ -728,16 +728,34 @@ class BattleBoxRepository(private val db: FirebaseFirestore) {
         newRole: String,
         newPlanTier: String,
         newMembershipStatus: String,
-        newAssignedTrainerId: String?
+        newAssignedTrainerId: String?,
+        newDisplayName: String = targetUser.displayName,
+        newPhone: String? = targetUser.phone,
+        newEmergencyContact: String? = targetUser.emergencyContact
     ): Result<Unit> = runCatching {
         val actorUid = requireUserId()
         val userRef = db.collection("users").document(targetUser.userId)
+        val cleanedName = newDisplayName.trim().ifBlank { targetUser.displayName }.take(80)
+        val cleanedPhone = newPhone?.trim()?.takeIf { it.isNotEmpty() }?.take(25)
+        val cleanedEmergency = newEmergencyContact?.trim()?.takeIf { it.isNotEmpty() }?.take(120)
+
         val payload = mutableMapOf<String, Any>(
+            "displayName" to cleanedName,
             "role" to newRole,
             "planTier" to newPlanTier,
             "membershipStatus" to newMembershipStatus,
             "updatedAt" to FieldValue.serverTimestamp()
         )
+        if (cleanedPhone != null) {
+            payload["phone"] = cleanedPhone
+        } else if (targetUser.phone != null) {
+            payload["phone"] = FieldValue.delete()
+        }
+        if (cleanedEmergency != null) {
+            payload["emergencyContact"] = cleanedEmergency
+        } else if (targetUser.emergencyContact != null) {
+            payload["emergencyContact"] = FieldValue.delete()
+        }
         if (!newAssignedTrainerId.isNullOrBlank()) {
             payload["assignedTrainerId"] = newAssignedTrainerId.trim()
         } else if (targetUser.assignedTrainerId != null) {
@@ -762,7 +780,7 @@ class BattleBoxRepository(private val db: FirebaseFirestore) {
             writeAuditLog(
                 action = "USER_ACCESS_UPDATED",
                 targetUid = targetUser.userId,
-                details = "${targetUser.displayName}: role=$newRole, plan=$newPlanTier, status=$newMembershipStatus, trainer=${newAssignedTrainerId ?: "none"}"
+                details = "$cleanedName: role=$newRole, plan=$newPlanTier, status=$newMembershipStatus, trainer=${newAssignedTrainerId ?: "none"}"
             )
         } catch (e: CancellationException) {
             throw e

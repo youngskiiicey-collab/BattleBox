@@ -8,11 +8,17 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -34,8 +40,21 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.data.legal.WhatsAppTemplates
 import com.example.data.model.GymAnnouncement
+import com.example.data.model.GymPlan
+import com.example.data.model.MemberSubscription
 import com.example.data.model.NotificationDeliveryLog
 import com.example.data.model.PaymentRequest
+import com.example.data.model.Phase3BillingConfig
+import com.example.data.model.UserProfile
+import com.example.ui.components.AdminPhase3IntegrationCard
+import com.example.ui.components.EditMemberSubscriptionDialog
+import com.example.ui.components.EditPaymentRequestDialog
+import com.example.ui.components.EditPlanDialog
+import com.google.firebase.Timestamp
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -43,11 +62,20 @@ fun AdminPhase2Section(
     announcements: List<GymAnnouncement>,
     paymentRequests: List<PaymentRequest>,
     deliveryLogs: List<NotificationDeliveryLog>,
+    plans: List<GymPlan> = GymPlan.defaultSeedPlans(),
+    subscriptions: List<MemberSubscription> = emptyList(),
+    allUsers: List<UserProfile> = emptyList(),
+    billingConfig: Phase3BillingConfig = Phase3BillingConfig(),
     isBusy: Boolean,
     onPostAnnouncement: (String, String, String, String, Boolean, Boolean) -> Unit,
     onClearAnnouncement: (String) -> Unit,
     onSeedDefaultPlans: () -> Unit,
+    onSavePlan: (GymPlan) -> Unit = {},
+    onSaveSubscription: (MemberSubscription) -> Unit = {},
+    onUpdatePaymentRequest: (PaymentRequest) -> Unit = {},
+    onDeletePaymentRequest: (String, String) -> Unit = { _, _ -> },
     onReconcileSandboxPayment: (PaymentRequest) -> Unit,
+    onSaveBillingConfig: (Phase3BillingConfig) -> Unit = {},
     onCopyMessage: (String) -> Unit
 ) {
     val clipboard = LocalClipboardManager.current
@@ -59,8 +87,261 @@ fun AdminPhase2Section(
     var sendWhatsappClosure by remember { mutableStateOf(false) }
     var showMetaTemplates by remember { mutableStateOf(false) }
 
+    var editingPlan by remember { mutableStateOf<GymPlan?>(null) }
+    var showCreatePlanDialog by remember { mutableStateOf(false) }
+    var editingRequest by remember { mutableStateOf<PaymentRequest?>(null) }
+    var editingSubscription by remember { mutableStateOf<Pair<MemberSubscription, String>?>(null) }
+    var showAssignSubPicker by remember { mutableStateOf(false) }
+
+    val usersById = remember(allUsers) { allUsers.associateBy { it.userId } }
+    val dateFmt = remember {
+        SimpleDateFormat("dd MMM yyyy", Locale.ENGLISH).apply {
+            timeZone = TimeZone.getTimeZone("Asia/Kolkata")
+        }
+    }
+
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        // 1. Post Live In-App Banner & Push/WhatsApp Broadcast
+        // 1. Editable Membership Plans Catalog (Basic/Premium, INR + GST)
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            shape = MaterialTheme.shapes.large,
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("admin_editable_plans_card")
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text("Editable Membership Plans (${plans.size})", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    text = "Edit plan names, INR pricing, GST %, duration days, billing cycles, or toggle visibility for members.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = { showCreatePlanDialog = true },
+                        enabled = !isBusy,
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("admin_add_plan_button")
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Text("Add Plan", modifier = Modifier.padding(start = 6.dp))
+                    }
+                    OutlinedButton(
+                        onClick = onSeedDefaultPlans,
+                        enabled = !isBusy,
+                        modifier = Modifier.testTag("admin_seed_plans_button")
+                    ) {
+                        Text("Reset 6 Defaults")
+                    }
+                }
+
+                plans.forEach { plan ->
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceContainer,
+                        shape = MaterialTheme.shapes.small,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "${plan.name} • ₹${plan.totalAmountInr}",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "${plan.tier.uppercase()} • ${plan.billingCycle} • ${plan.durationDays}d • GST ${plan.gstPercent}% • ${if (plan.active) "ACTIVE" else "HIDDEN"}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            OutlinedButton(
+                                onClick = { editingPlan = plan },
+                                enabled = !isBusy,
+                                modifier = Modifier.testTag("edit_plan_${plan.id}")
+                            ) {
+                                Icon(Icons.Default.Edit, contentDescription = "Edit plan", modifier = Modifier.size(16.dp))
+                                Text("Edit", modifier = Modifier.padding(start = 4.dp))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Editable Member Subscriptions & Active Memberships
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            shape = MaterialTheme.shapes.large,
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("admin_editable_memberships_card")
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Editable Member Memberships (${subscriptions.size})", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            text = "Assign, extend validity (+30d), pause/cancel AutoPay, or override member subscription tiers.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                if (allUsers.isNotEmpty()) {
+                    OutlinedButton(
+                        onClick = { showAssignSubPicker = true },
+                        enabled = !isBusy,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("admin_assign_membership_button")
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Text("Assign / Edit Membership for Any User", modifier = Modifier.padding(start = 6.dp))
+                    }
+                }
+
+                if (subscriptions.isEmpty()) {
+                    Text(
+                        text = "No member subscriptions recorded yet. Assign one above or settle a pending pay below.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    subscriptions.forEach { sub ->
+                        val memberLabel = usersById[sub.userId]?.displayName ?: sub.userId.take(10)
+                        val validUntil = sub.currentPeriodEnd?.toDate()?.let { dateFmt.format(it) } ?: "No expiry date"
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceContainer,
+                            shape = MaterialTheme.shapes.small,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "$memberLabel • ${sub.planName}",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "₹${sub.amountInr} • ${sub.status.uppercase()} • AutoPay=${if (sub.autoRenew) "ON" else "OFF"} • Until $validUntil",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                OutlinedButton(
+                                    onClick = { editingSubscription = sub to memberLabel },
+                                    enabled = !isBusy,
+                                    modifier = Modifier.testTag("edit_sub_${sub.id}")
+                                ) {
+                                    Text("Edit")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. Editable Pending Pay Queue + Sandbox Settlement
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            shape = MaterialTheme.shapes.large,
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("admin_pending_pay_card")
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text("Editable Pending Pay Queue (${paymentRequests.size})", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    text = "Edit INR amount, UPI app, payment mode, or remove requests before reconciling or triggering webhooks.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                if (paymentRequests.isEmpty()) {
+                    Text(
+                        text = "No pending member checkout intents.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    paymentRequests.take(10).forEach { req ->
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceContainer,
+                            shape = MaterialTheme.shapes.small,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(10.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Column {
+                                    Text("${req.memberName} • ${req.planName}", style = MaterialTheme.typography.titleSmall)
+                                    Text(
+                                        text = "₹${req.amountInr} via ${req.paymentMode} (${req.preferredUpiApp}) • ${req.status.uppercase()}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    OutlinedButton(
+                                        onClick = { editingRequest = req },
+                                        enabled = !isBusy,
+                                        modifier = Modifier.testTag("edit_pending_pay_${req.id}")
+                                    ) {
+                                        Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Text("Edit Pay", modifier = Modifier.padding(start = 4.dp))
+                                    }
+                                    Button(
+                                        onClick = { onReconcileSandboxPayment(req) },
+                                        enabled = !isBusy,
+                                        modifier = Modifier.testTag("settle_pending_pay_${req.id}")
+                                    ) {
+                                        Text("Sandbox Settle")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 4. Phase 3 Gateway & AutoPay Integration Card
+        AdminPhase3IntegrationCard(
+            billingConfig = billingConfig,
+            isBusy = isBusy,
+            onSaveBillingConfig = onSaveBillingConfig
+        )
+
+        // 5. Post Live In-App Banner & Push/WhatsApp Broadcast
         Card(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             shape = MaterialTheme.shapes.large
@@ -175,69 +456,7 @@ fun AdminPhase2Section(
             }
         }
 
-        // 2. Razorpay Orders, Plans Seeding & Sandbox Webhook Reconciliation
-        Card(
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            shape = MaterialTheme.shapes.large
-        ) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Text("Plans Catalog & Razorpay Checkout Queue", style = MaterialTheme.typography.titleMedium)
-                Text(
-                    text = "Production payment status changes only via HMAC-verified Cloud Functions webhooks. Admins may reconcile pending requests here in sandbox testing.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                OutlinedButton(
-                    onClick = onSeedDefaultPlans,
-                    enabled = !isBusy,
-                    modifier = Modifier.testTag("admin_seed_plans_button")
-                ) {
-                    Text("Seed 6 INR Plans (Basic/Premium)")
-                }
-
-                if (paymentRequests.isEmpty()) {
-                    Text(
-                        text = "No pending member checkout intents.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                } else {
-                    paymentRequests.take(5).forEach { req ->
-                        Surface(
-                            color = MaterialTheme.colorScheme.surfaceContainer,
-                            shape = MaterialTheme.shapes.small,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(10.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text("${req.memberName} • ${req.planName}", style = MaterialTheme.typography.titleSmall)
-                                    Text(
-                                        text = "₹${req.amountInr} via ${req.paymentMode} (${req.preferredUpiApp})",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                                OutlinedButton(
-                                    onClick = { onReconcileSandboxPayment(req) },
-                                    enabled = !isBusy
-                                ) {
-                                    Text("Sandbox Settle")
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // 3. Meta WhatsApp Cloud API Utility Templates & Delivery Logs
+        // 6. Meta WhatsApp Cloud API Utility Templates & Delivery Logs
         Card(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             shape = MaterialTheme.shapes.large
@@ -316,5 +535,95 @@ fun AdminPhase2Section(
                 }
             }
         }
+    }
+
+    if (showCreatePlanDialog) {
+        EditPlanDialog(
+            initialPlan = null,
+            onDismiss = { showCreatePlanDialog = false },
+            onSave = { created ->
+                showCreatePlanDialog = false
+                onSavePlan(created)
+            }
+        )
+    }
+
+    editingPlan?.let { targetPlan ->
+        EditPlanDialog(
+            initialPlan = targetPlan,
+            onDismiss = { editingPlan = null },
+            onSave = { updated ->
+                editingPlan = null
+                onSavePlan(updated)
+            }
+        )
+    }
+
+    editingRequest?.let { req ->
+        EditPaymentRequestDialog(
+            request = req,
+            onDismiss = { editingRequest = null },
+            onSave = { updated ->
+                editingRequest = null
+                onUpdatePaymentRequest(updated)
+            },
+            onDelete = { removed ->
+                editingRequest = null
+                onDeletePaymentRequest(removed.id, removed.memberName)
+            }
+        )
+    }
+
+    editingSubscription?.let { (sub, memberLabel) ->
+        EditMemberSubscriptionDialog(
+            subscription = sub,
+            memberLabel = memberLabel,
+            onDismiss = { editingSubscription = null },
+            onSave = { updated ->
+                editingSubscription = null
+                onSaveSubscription(updated)
+            }
+        )
+    }
+
+    if (showAssignSubPicker) {
+        AlertDialog(
+            onDismissRequest = { showAssignSubPicker = false },
+            title = { Text("Select User for Membership Edit") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    allUsers.take(15).forEach { user ->
+                        val existingSub = subscriptions.firstOrNull { it.userId == user.userId }
+                        OutlinedButton(
+                            onClick = {
+                                showAssignSubPicker = false
+                                val draft = existingSub ?: MemberSubscription(
+                                    id = "sub_${user.userId.take(10)}_custom",
+                                    userId = user.userId,
+                                    planId = plans.firstOrNull { it.tier == user.planTier }?.id ?: "basic_monthly",
+                                    planName = plans.firstOrNull { it.tier == user.planTier }?.name ?: "Basic Monthly",
+                                    tier = user.planTier,
+                                    billingCycle = GymPlan.CYCLE_MONTHLY,
+                                    paymentMode = PaymentRequest.MODE_UPI_AUTOPAY,
+                                    amountInr = plans.firstOrNull { it.tier == user.planTier }?.totalAmountInr ?: 1499L,
+                                    status = MemberSubscription.STATUS_ACTIVE,
+                                    upiHandle = "Admin Managed",
+                                    autoRenew = false,
+                                    currentPeriodEnd = Timestamp(Date(System.currentTimeMillis() + 30L * 86_400_000L))
+                                )
+                                editingSubscription = draft to user.displayName
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("${user.displayName} (${user.planTier.uppercase()} • ${user.membershipStatus.uppercase()})")
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showAssignSubPicker = false }) { Text("Close") }
+            }
+        )
     }
 }

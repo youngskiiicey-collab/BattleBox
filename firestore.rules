@@ -498,7 +498,22 @@ service cloud.firestore {
                          'preferredUpiApp', 'status', 'createdAt', 'updatedAt'
                        ]) &&
                        isValidPaymentRequest(incoming());
-      allow update, delete: if isValidId(requestId) && isAdmin();
+      allow update: if isValidId(requestId) &&
+                       isAdmin() &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().keys().hasAll([
+                         'userId', 'memberName', 'memberEmail', 'planId', 'planName', 'tier',
+                         'billingCycle', 'paymentMode', 'amountInr', 'currency',
+                         'preferredUpiApp', 'status', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'memberName', 'memberEmail', 'planId', 'planName', 'tier',
+                         'billingCycle', 'paymentMode', 'amountInr', 'currency',
+                         'preferredUpiApp', 'status', 'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidPaymentRequest(incoming());
+      allow delete: if isValidId(requestId) && isAdmin();
     }
 
     // 11. Subscriptions & UPI AutoPay Mandates (Member read-only except requesting cancellation)
@@ -580,6 +595,42 @@ service cloud.firestore {
       allow list: if isAdmin() || (isSignedIn() && existing().recipientUid == request.auth.uid);
       allow create: if isValidId(logId) && isAdmin() && isValidDeliveryLog(incoming());
       allow update, delete: if false;
+    }
+
+    // 16. Phase 3 Future Payment Gateway & UPI AutoPay Configuration
+    function isValidBillingConfig(data) {
+      return data.gatewayProvider in ['razorpay', 'cashfree', 'phonepe_pg'] &&
+             data.environmentMode in ['sandbox', 'production_ready'] &&
+             data.razorpayKeyId is string && data.razorpayKeyId.size() <= 80 &&
+             data.upiAutoPayMandateEnabled is bool &&
+             data.supportedUpiApps is string && data.supportedUpiApps.size() >= 1 && data.supportedUpiApps.size() <= 160 &&
+             data.preDebitLeadHours is int && data.preDebitLeadHours >= 1 && data.preDebitLeadHours <= 168 &&
+             data.gracePeriodDays is int && data.gracePeriodDays >= 0 && data.gracePeriodDays <= 30 &&
+             data.autoRetryFailedDebits is bool &&
+             data.webhookEndpointUrl is string && data.webhookEndpointUrl.size() <= 300 &&
+             data.futureFinanceModulesEnabled is bool &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    match /billing_config/{configId} {
+      allow get: if isValidId(configId) && isSignedIn();
+      allow list: if false;
+      allow create, update: if isValidId(configId) &&
+                               isAdmin() &&
+                               incoming().keys().hasAll([
+                                 'gatewayProvider', 'environmentMode', 'razorpayKeyId',
+                                 'upiAutoPayMandateEnabled', 'supportedUpiApps',
+                                 'preDebitLeadHours', 'gracePeriodDays', 'autoRetryFailedDebits',
+                                 'webhookEndpointUrl', 'futureFinanceModulesEnabled', 'updatedAt'
+                               ]) &&
+                               incoming().keys().hasOnly([
+                                 'gatewayProvider', 'environmentMode', 'razorpayKeyId',
+                                 'upiAutoPayMandateEnabled', 'supportedUpiApps',
+                                 'preDebitLeadHours', 'gracePeriodDays', 'autoRetryFailedDebits',
+                                 'webhookEndpointUrl', 'futureFinanceModulesEnabled', 'updatedAt'
+                               ]) &&
+                               isValidBillingConfig(incoming());
+      allow delete: if false;
     }
   }
 }

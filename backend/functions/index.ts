@@ -327,6 +327,46 @@ export const onGymAnnouncementCreated = onDocumentCreated(
   }
 );
 
+// 6. Push Notification to Trainers & Admins on Permanent Wall QR Self Check-In
+export const onWallQrSelfCheckInCreated = onDocumentCreated(
+  {
+    region: REGION,
+    database: DB_ID,
+    document: "attendance/{attendanceId}",
+  },
+  async (event) => {
+    const rec = event.data?.data();
+    if (!rec || rec.mode !== "kiosk_qr" || rec.status !== "checked_in") return;
+
+    const staffSnap = await db.collection("users").where("role", "in", ["admin", "trainer"]).get();
+    const staffUids = staffSnap.docs.map((d) => d.id);
+    if (staffUids.length === 0) return;
+
+    const prefSnaps = await Promise.all(
+      staffUids.map((uid) => db.collection("notification_preferences").doc(uid).get())
+    );
+    const tokens = prefSnaps
+      .map((s) => s.data())
+      .filter((p) => p?.pushEnabled && typeof p?.fcmToken === "string" && p.fcmToken.length > 0)
+      .map((p) => p!.fcmToken as string);
+
+    if (tokens.length > 0) {
+      await getMessaging().sendEachForMulticast({
+        tokens,
+        notification: {
+          title: "Battle Box Wall QR Self Check-In",
+          body: `${rec.memberName ?? "Member"} checked in (${Math.round(Number(rec.distanceMeters ?? 0))}m GPS verified).`,
+        },
+        data: {
+          attendanceId: event.params.attendanceId,
+          userId: String(rec.userId ?? ""),
+          mode: "kiosk_qr",
+        },
+      });
+    }
+  }
+);
+
 async function sendWhatsAppUtilityTemplate(
   uid: string,
   templateName: string,

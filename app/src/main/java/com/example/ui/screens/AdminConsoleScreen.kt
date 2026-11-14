@@ -51,27 +51,32 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.compose.foundation.clickable
 import com.example.data.model.AttendanceRecord
 import com.example.data.model.AttendanceRejection
 import com.example.data.model.AuditLogEntry
 import com.example.data.model.GymAnnouncement
 import com.example.data.model.GymConfig
+import com.example.data.model.GymPlan
 import com.example.data.model.GymPublicStatus
+import com.example.data.model.MemberSubscription
 import com.example.data.model.NotificationDeliveryLog
 import com.example.data.model.PaymentRequest
+import com.example.data.model.Phase3BillingConfig
 import com.example.data.model.UiState
 import com.example.data.model.UserProfile
 import com.example.security.DeviceFix
 import com.example.security.GeofenceUtils
-import com.example.security.QrTokenSigner
 import com.example.ui.components.FirebaseConsoleCard
 import com.example.ui.components.FirebaseConsoleLinks
 import com.example.ui.components.LiveOccupancyMonitorCard
 import com.example.ui.components.MapsPhotoShowcaseCard
 import com.example.ui.components.MonthlyAttendanceExportCard
+import com.example.ui.components.PermanentWallQrCard
 import com.example.ui.components.QrScannerSheet
-import com.example.ui.components.RotatingQrCard
+import com.example.ui.components.SelfCheckInNotificationFeedCard
 import com.example.utils.MonthlyAttendanceSummary
+import com.example.utils.WallQrPosterPdfGenerator
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -89,6 +94,9 @@ fun AdminConsoleScreen(
     announcements: List<GymAnnouncement> = emptyList(),
     paymentRequests: List<PaymentRequest> = emptyList(),
     deliveryLogs: List<NotificationDeliveryLog> = emptyList(),
+    plans: List<GymPlan> = GymPlan.defaultSeedPlans(),
+    allSubscriptions: List<MemberSubscription> = emptyList(),
+    billingConfig: Phase3BillingConfig = Phase3BillingConfig(),
     deviceFix: DeviceFix?,
     monthlyExportState: UiState<MonthlyAttendanceSummary>? = null,
     isBusy: Boolean,
@@ -97,12 +105,18 @@ fun AdminConsoleScreen(
     onAdminCheckOut: (attendanceId: String, memberName: String) -> Unit,
     onSweepExpired: (List<AttendanceRecord>) -> Unit,
     onUpdateUser: (UserProfile, String, String, String, String?) -> Unit,
+    onUpdateUserFull: ((UserProfile, String, String, String, String?, String, String?, String?) -> Unit)? = null,
     onUpdateGymConfig: (GymConfig) -> Unit,
     onFetchMonthlyCsv: (Int, Int) -> Unit = { _, _ -> },
     onPostAnnouncement: (String, String, String, String, Boolean, Boolean) -> Unit = { _, _, _, _, _, _ -> },
     onClearAnnouncement: (String) -> Unit = {},
     onSeedDefaultPlans: () -> Unit = {},
+    onSavePlan: (GymPlan) -> Unit = {},
+    onSaveSubscription: (MemberSubscription) -> Unit = {},
+    onUpdatePaymentRequest: (PaymentRequest) -> Unit = {},
+    onDeletePaymentRequest: (String, String) -> Unit = { _, _ -> },
     onReconcileSandboxPayment: (PaymentRequest) -> Unit = {},
+    onSaveBillingConfig: (Phase3BillingConfig) -> Unit = {},
     onCopyMessage: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -147,7 +161,7 @@ fun AdminConsoleScreen(
                 }
             }
 
-            // Admin Quick KPI Overview Strip
+            // Admin Quick KPI Overview Strip (tap to jump to section)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -155,21 +169,25 @@ fun AdminConsoleScreen(
                 AdminKpiPill(
                     label = "In Gym",
                     value = "${liveRoster.size}",
+                    onClick = { selectedSection = 0 },
                     modifier = Modifier.weight(1f)
                 )
                 AdminKpiPill(
                     label = "Users",
                     value = "${allUsers.size}",
+                    onClick = { selectedSection = 1 },
                     modifier = Modifier.weight(1f)
                 )
                 AdminKpiPill(
                     label = "Pending Pay",
                     value = "${paymentRequests.count { it.status == PaymentRequest.STATUS_CREATED }}",
+                    onClick = { selectedSection = 2 },
                     modifier = Modifier.weight(1f)
                 )
                 AdminKpiPill(
                     label = "Banners",
                     value = "${announcements.size}",
+                    onClick = { selectedSection = 2 },
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -226,6 +244,9 @@ fun AdminConsoleScreen(
                         }
                     }
 
+                    // Real-time Wall QR Self Check-In Notifications for Admin
+                    SelfCheckInNotificationFeedCard(liveRoster = liveRoster)
+
                     LiveOccupancyMonitorCard(
                         gymConfig = gymConfig,
                         gymPublicStatus = gymPublicStatus,
@@ -243,16 +264,24 @@ fun AdminConsoleScreen(
                         onFeedback = onCopyMessage
                     )
 
-                    // Wall Kiosk QR Display
+                    // Permanent Printable Non-Rotating Wall QR Display
                     Card(
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                         shape = MaterialTheme.shapes.large
                     ) {
                         Column(modifier = Modifier.padding(16.dp)) {
-                            RotatingQrCard(
-                                title = "Battle Box Wall / Kiosk QR",
-                                subtitle = "Members and trainers scan this rotating QR code for geofenced self check-in.",
-                                tokenProvider = { nowMs -> QrTokenSigner.generateKioskToken("main", nowMs) },
+                            PermanentWallQrCard(
+                                geofenceRadiusMeters = gymConfig.geofenceRadiusM.toInt(),
+                                maxGpsAccuracyMeters = gymConfig.maxGpsAccuracyM.toInt(),
+                                onPrintPoster = {
+                                    WallQrPosterPdfGenerator.generateAndOpenPoster(context, gymConfig)
+                                        .onSuccess {
+                                            onCopyMessage("Printable A4 Wall QR poster generated.")
+                                        }
+                                        .onFailure {
+                                            onCopyMessage("Wall QR PDF generated (open via PDF viewer failed: ${it.localizedMessage}).")
+                                        }
+                                },
                                 onCopied = onCopyMessage
                             )
                         }
@@ -329,11 +358,20 @@ fun AdminConsoleScreen(
                         announcements = announcements,
                         paymentRequests = paymentRequests,
                         deliveryLogs = deliveryLogs,
+                        plans = plans,
+                        subscriptions = allSubscriptions,
+                        allUsers = allUsers,
+                        billingConfig = billingConfig,
                         isBusy = isBusy,
                         onPostAnnouncement = onPostAnnouncement,
                         onClearAnnouncement = onClearAnnouncement,
                         onSeedDefaultPlans = onSeedDefaultPlans,
+                        onSavePlan = onSavePlan,
+                        onSaveSubscription = onSaveSubscription,
+                        onUpdatePaymentRequest = onUpdatePaymentRequest,
+                        onDeletePaymentRequest = onDeletePaymentRequest,
                         onReconcileSandboxPayment = onReconcileSandboxPayment,
+                        onSaveBillingConfig = onSaveBillingConfig,
                         onCopyMessage = onCopyMessage
                     )
                 }
@@ -450,9 +488,13 @@ fun AdminConsoleScreen(
             user = target,
             trainers = trainers,
             onDismiss = { editingUser = null },
-            onSave = { role, plan, status, trainerId ->
+            onSave = { role, plan, status, trainerId, name, phone, emergency ->
                 editingUser = null
-                onUpdateUser(target, role, plan, status, trainerId)
+                if (onUpdateUserFull != null) {
+                    onUpdateUserFull(target, role, plan, status, trainerId, name, phone, emergency)
+                } else {
+                    onUpdateUser(target, role, plan, status, trainerId)
+                }
             }
         )
     }
@@ -620,12 +662,23 @@ private fun EditUserAccessDialog(
     user: UserProfile,
     trainers: List<UserProfile>,
     onDismiss: () -> Unit,
-    onSave: (role: String, planTier: String, status: String, assignedTrainerId: String?) -> Unit
+    onSave: (
+        role: String,
+        planTier: String,
+        status: String,
+        assignedTrainerId: String?,
+        displayName: String,
+        phone: String?,
+        emergencyContact: String?
+    ) -> Unit
 ) {
-    var role by remember { mutableStateOf(user.role) }
-    var planTier by remember { mutableStateOf(user.planTier) }
-    var status by remember { mutableStateOf(user.membershipStatus) }
-    var assignedTrainerId by remember { mutableStateOf(user.assignedTrainerId) }
+    var displayName by remember(user.userId) { mutableStateOf(user.displayName) }
+    var phone by remember(user.userId) { mutableStateOf(user.phone.orEmpty()) }
+    var emergencyContact by remember(user.userId) { mutableStateOf(user.emergencyContact.orEmpty()) }
+    var role by remember(user.userId) { mutableStateOf(user.role) }
+    var planTier by remember(user.userId) { mutableStateOf(user.planTier) }
+    var status by remember(user.userId) { mutableStateOf(user.membershipStatus) }
+    var assignedTrainerId by remember(user.userId) { mutableStateOf(user.assignedTrainerId) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -635,6 +688,27 @@ private fun EditUserAccessDialog(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
+                OutlinedTextField(
+                    value = displayName,
+                    onValueChange = { displayName = it },
+                    label = { Text("Member / Staff Name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = phone,
+                    onValueChange = { phone = it },
+                    label = { Text("Phone Number") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = emergencyContact,
+                    onValueChange = { emergencyContact = it },
+                    label = { Text("Emergency Contact") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
                 Text("Role (RBAC)", style = MaterialTheme.typography.titleSmall)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     listOf(UserProfile.ROLE_MEMBER, UserProfile.ROLE_TRAINER, UserProfile.ROLE_ADMIN).forEach { r ->
@@ -673,7 +747,17 @@ private fun EditUserAccessDialog(
             }
         },
         confirmButton = {
-            Button(onClick = { onSave(role, planTier, status, assignedTrainerId) }) {
+            Button(onClick = {
+                onSave(
+                    role,
+                    planTier,
+                    status,
+                    assignedTrainerId,
+                    displayName.ifBlank { user.displayName },
+                    phone.trim().ifBlank { null },
+                    emergencyContact.trim().ifBlank { null }
+                )
+            }) {
                 Text("Save & Log")
             }
         },
@@ -689,12 +773,13 @@ private fun EditUserAccessDialog(
 private fun AdminKpiPill(
     label: String,
     value: String,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainer,
         shape = MaterialTheme.shapes.medium,
-        modifier = modifier
+        modifier = modifier.clickable(onClick = onClick)
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 10.dp),

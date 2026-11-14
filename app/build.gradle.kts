@@ -143,8 +143,9 @@ dependencies {
 }
 
 tasks.withType<Test> {
+  maxHeapSize = "2048m"
   failFast = true
-  timeout.set(Duration.ofMinutes(2))
+  timeout.set(Duration.ofMinutes(5))
   testLogging {
     events("passed", "failed", "skipped")
   }

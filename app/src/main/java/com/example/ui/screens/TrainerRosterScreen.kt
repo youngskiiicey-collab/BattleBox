@@ -41,6 +41,7 @@ import com.example.data.model.UserProfile
 import com.example.security.GeofenceUtils
 import com.example.ui.components.LiveOccupancyMonitorCard
 import com.example.ui.components.MapsPhotoShowcaseCard
+import com.example.ui.components.SelfCheckInNotificationFeedCard
 
 @Composable
 fun TrainerRosterScreen(
@@ -161,6 +162,9 @@ fun TrainerRosterScreen(
                     }
                 }
             }
+
+            // Real-time Wall QR Self Check-In Notifications for Trainers
+            SelfCheckInNotificationFeedCard(liveRoster = liveRoster)
 
             // Real-time Live Occupancy Monitoring for Coaches
             LiveOccupancyMonitorCard(

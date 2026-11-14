@@ -413,6 +413,142 @@ class BattleBoxRepositoryRuleTest : FirestoreEmulatorTestBase() {
         assertTrue(auditLogs.any { it.action == "ATTENDANCE_CSV_EXPORTED" })
     }
 
+    @Test
+    fun permanentWallQrAndAdminEditablePlansPendingPayPhase3_succeedInFirestore() = runBlocking {
+        val coreRepo = BattleBoxRepository(firestore)
+        val p2Repo = Phase2Repository(firestore, coreRepo)
+        val gymConfig = GymConfig()
+        val insideFix = DeviceFix(gymConfig.latitude, gymConfig.longitude, accuracyMeters = 9.0)
+
+        // 1. Member onboards & checks in via permanent non-rotating Wall QR inside geofence
+        val memberEmail = "wall_member_${UUID.randomUUID().toString().take(8)}@test.com"
+        val memberUid = signInTestUser(memberEmail)
+        withTimeout(DEFAULT_TIMEOUT_MS) {
+            coreRepo.completeOnboarding(
+                displayName = "Sanjay Rabha",
+                email = memberEmail,
+                phone = "+919876543210",
+                emergencyContact = null,
+                photoUrl = null,
+                isBootstrappedOwner = false
+            )
+        }
+        val memberProfile = withTimeout(FLOW_TIMEOUT_MS) {
+            coreRepo.observeUserProfile(memberUid).first { it != null }
+        }!!
+
+        val wallToken = QrTokenSigner.generatePermanentWallToken("main")
+        val checkInRes = withTimeout(DEFAULT_TIMEOUT_MS) {
+            coreRepo.performKioskSelfCheckIn(
+                scannedQrPayload = wallToken,
+                currentUser = memberProfile,
+                gymConfig = gymConfig,
+                deviceFix = insideFix
+            )
+        }
+        assertTrue("Expected Wall QR CheckedIn but got $checkInRes", checkInRes is CheckInOutcome.CheckedIn)
+
+        val defaultPlan = GymPlan.defaultSeedPlans().first { it.id == "basic_monthly" }
+        val reqId = withTimeout(DEFAULT_TIMEOUT_MS) {
+            p2Repo.createCheckoutIntent(
+                user = memberProfile,
+                plan = defaultPlan,
+                paymentMode = PaymentRequest.MODE_UPI_AUTOPAY,
+                preferredUpiApp = "Google Pay"
+            )
+        }.getOrThrow()
+
+        // 2. Bootstrapped Admin signs in and receives Wall QR arrival on liveRoster, edits Plan, Pending Pay, Membership & Phase 3 config
+        signInVerifiedBootstrappedOwner()
+        withTimeout(DEFAULT_TIMEOUT_MS) {
+            coreRepo.completeOnboarding(
+                displayName = "Gym Owner",
+                email = "youngskiiicey@gmail.com",
+                phone = null,
+                emergencyContact = null,
+                photoUrl = null,
+                isBootstrappedOwner = true
+            )
+        }
+
+        val staffRoster = withTimeout(FLOW_TIMEOUT_MS) {
+            coreRepo.observeLiveAttendanceRoster().first { list ->
+                list.any { it.userId == memberUid && it.mode == "kiosk_qr" }
+            }
+        }
+        assertTrue(staffRoster.any { it.memberName == "Sanjay Rabha" && it.mode == "kiosk_qr" })
+
+        val savePlanRes = withTimeout(DEFAULT_TIMEOUT_MS) {
+            p2Repo.adminSavePlan(
+                defaultPlan.copy(
+                    id = "dudhnoi_fighter_pack",
+                    name = "Dudhnoi Fighter Pass",
+                    baseAmountInr = 1694L,
+                    gstPercent = 18L,
+                    totalAmountInr = 1999L
+                )
+            )
+        }
+        assertTrue("adminSavePlan failed: ${savePlanRes.exceptionOrNull()}", savePlanRes.isSuccess)
+
+        val allPlans = withTimeout(FLOW_TIMEOUT_MS) {
+            p2Repo.observeAllPlansForAdmin().first { list -> list.any { it.id == "dudhnoi_fighter_pack" } }
+        }
+        assertEquals(1999L, allPlans.first { it.id == "dudhnoi_fighter_pack" }.totalAmountInr)
+
+        val pendingReq = withTimeout(FLOW_TIMEOUT_MS) {
+            p2Repo.observeAllPaymentRequests().first { list -> list.any { it.id == reqId } }
+        }.first { it.id == reqId }
+        val editReqRes = withTimeout(DEFAULT_TIMEOUT_MS) {
+            p2Repo.adminUpdatePaymentRequest(
+                pendingReq.copy(
+                    amountInr = 1799L,
+                    preferredUpiApp = "PhonePe",
+                    status = PaymentRequest.STATUS_AWAITING_BACKEND
+                )
+            )
+        }
+        assertTrue("adminUpdatePaymentRequest failed: ${editReqRes.exceptionOrNull()}", editReqRes.isSuccess)
+
+        val saveSubRes = withTimeout(DEFAULT_TIMEOUT_MS) {
+            p2Repo.adminSaveSubscription(
+                com.example.data.model.MemberSubscription(
+                    id = "sub_${memberUid.take(8)}_custom",
+                    userId = memberUid,
+                    planId = "dudhnoi_fighter_pack",
+                    planName = "Dudhnoi Fighter Pass",
+                    tier = "premium",
+                    billingCycle = GymPlan.CYCLE_MONTHLY,
+                    amountInr = 1999L,
+                    status = com.example.data.model.MemberSubscription.STATUS_ACTIVE,
+                    upiHandle = "sanjay@okaxis",
+                    autoRenew = true
+                )
+            )
+        }
+        assertTrue("adminSaveSubscription failed: ${saveSubRes.exceptionOrNull()}", saveSubRes.isSuccess)
+
+        val savePhase3Res = withTimeout(DEFAULT_TIMEOUT_MS) {
+            p2Repo.adminSaveBillingConfig(
+                com.example.data.model.Phase3BillingConfig(
+                    gatewayProvider = com.example.data.model.Phase3BillingConfig.GATEWAY_RAZORPAY,
+                    environmentMode = com.example.data.model.Phase3BillingConfig.ENV_PRODUCTION_READY,
+                    razorpayKeyId = "rzp_live_battlebox",
+                    upiAutoPayMandateEnabled = true,
+                    preDebitLeadHours = 36L,
+                    gracePeriodDays = 5L
+                )
+            )
+        }
+        assertTrue("adminSaveBillingConfig failed: ${savePhase3Res.exceptionOrNull()}", savePhase3Res.isSuccess)
+
+        val observedPhase3 = withTimeout(FLOW_TIMEOUT_MS) {
+            p2Repo.observeBillingConfig().first { it.razorpayKeyId == "rzp_live_battlebox" }
+        }
+        assertEquals(36L, observedPhase3.preDebitLeadHours)
+        assertEquals(com.example.data.model.Phase3BillingConfig.ENV_PRODUCTION_READY, observedPhase3.environmentMode)
+    }
+
     private suspend fun signInVerifiedBootstrappedOwner() {
         val ownerEmail = "youngskiiicey@gmail.com"
         val uid = signInTestUser(ownerEmail)

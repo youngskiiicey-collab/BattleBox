@@ -154,11 +154,11 @@ fun PassAndCheckInScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Text(
-                        text = "Self Check-In (Wall / Kiosk QR)",
+                        text = "Self Check-In (Permanent Wall QR)",
                         style = MaterialTheme.typography.titleMedium
                     )
                     Text(
-                        text = "Requires scanning the Battle Box wall QR within ${gymConfig.geofenceRadiusM.toInt()} m and GPS accuracy <= ${gymConfig.maxGpsAccuracyM.toInt()} m.",
+                        text = "Scan the permanent Battle Box Wall QR pasted inside the gym within ${gymConfig.geofenceRadiusM.toInt()} m (GPS <= ${gymConfig.maxGpsAccuracyM.toInt()} m). Checks you in without Admin involvement and notifies Trainers & Admin.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -265,7 +265,7 @@ fun PassAndCheckInScreen(
                                     .testTag("scan_kiosk_qr_button")
                             ) {
                                 Icon(Icons.Default.QrCodeScanner, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Text("Scan Kiosk QR", modifier = Modifier.padding(start = 6.dp))
+                                Text("Scan Wall QR", modifier = Modifier.padding(start = 6.dp))
                             }
                         }
                     }
@@ -366,8 +366,8 @@ fun PassAndCheckInScreen(
 
     if (showScanner) {
         QrScannerSheet(
-            title = "Scan Battle Box Kiosk QR",
-            subtitle = "Point camera at the rotating wall/kiosk QR code, or paste a current token to verify.",
+            title = "Scan Battle Box Wall QR",
+            subtitle = "Point camera at the permanent Battle Box Wall QR poster pasted in the gym to self check-in.",
             onQrScanned = { scannedPayload ->
                 showScanner = false
                 scope.launch {
