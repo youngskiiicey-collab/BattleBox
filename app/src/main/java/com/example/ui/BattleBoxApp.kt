@@ -1,5 +1,7 @@
 package com.example.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -12,7 +14,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CreditCard
@@ -32,6 +37,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -57,7 +63,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.credentials.CredentialManager
 import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -72,10 +80,13 @@ import androidx.navigation.compose.rememberNavController
 import com.example.R
 import com.example.data.ai.BattleBoxConciergeRepository
 import com.example.data.model.AttendanceRecord
+import com.example.data.model.MemberSubscription
 import com.example.data.model.UiState
 import com.example.data.model.UserProfile
+import com.example.data.model.WorkoutProfile
 import com.example.data.repository.BattleBoxRepository
 import com.example.data.repository.Phase2Repository
+import com.example.data.repository.WorkoutRepository
 import com.example.security.DeviceFix
 import com.example.security.GeofenceUtils
 import com.example.ui.auth.SignInScreen
@@ -83,6 +94,7 @@ import com.example.ui.auth.attemptAutoSignIn
 import com.example.ui.auth.signOutUser
 import com.example.ui.components.BattleBoxCrest
 import com.example.ui.components.ConciergeSheet
+import com.example.ui.components.CyberpunkNotificationBanner
 import com.example.ui.navigation.BattleBoxRoute
 import com.example.ui.navigation.RoleDashboardDestination
 import com.example.ui.navigation.RoleNavigationUtility
@@ -95,13 +107,21 @@ import com.example.ui.screens.ProfileAndLegalScreen
 import com.example.ui.screens.QrAttendanceScannerScreen
 import com.example.ui.screens.TrainerRosterScreen
 import com.example.ui.theme.BattleBoxTheme
+import com.example.ui.theme.CyberAmber
+import com.example.ui.theme.CyberCyan
+import com.example.ui.theme.CyberMagenta
+import com.example.ui.theme.CyberNeonGreen
 import com.example.ui.viewmodel.BattleBoxViewModel
+import com.example.ui.workout.WorkoutModeShell
 import com.example.utils.BattleBoxNotificationHelper
+import com.example.utils.BattleBoxSoundEngine
 import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.auth
 import com.google.firebase.firestore.FirebaseFirestore
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 
 private data class NavTab(
     val route: String,
@@ -161,6 +181,7 @@ fun BattleBoxApp() {
                                 repository = coreRepo,
                                 phase2Repository = Phase2Repository(firestoreDb, coreRepo),
                                 conciergeRepository = BattleBoxConciergeRepository(),
+                                workoutRepository = WorkoutRepository(firestoreDb),
                                 currentUserId = user.uid,
                                 currentUserEmail = user.email.orEmpty(),
                                 currentUserDisplayName = user.displayName.orEmpty(),
@@ -223,24 +244,78 @@ private fun AuthenticatedBattleBoxShell(
     val isDarkTheme by viewModel.isDarkTheme.collectAsStateWithLifecycle()
     val chatMessages by viewModel.chatMessages.collectAsStateWithLifecycle()
     val isConciergeBusy by viewModel.isConciergeBusy.collectAsStateWithLifecycle()
+    val workoutProfile by viewModel.workoutProfile.collectAsStateWithLifecycle()
+    val workoutLogs by viewModel.workoutLogs.collectAsStateWithLifecycle()
+    val isWorkoutMode by viewModel.isWorkoutMode.collectAsStateWithLifecycle()
+    val hudAlert by viewModel.hudAlert.collectAsStateWithLifecycle()
+    val isSoundMuted by viewModel.isSoundMuted.collectAsStateWithLifecycle()
 
     val snackbarHostState = remember { SnackbarHostState() }
     var deviceFix by remember { mutableStateOf<DeviceFix?>(null) }
     var showConcierge by remember { mutableStateOf(false) }
     var lastNotifiedAnnId by remember { mutableStateOf<String?>(null) }
+    var lastRenewalAlertKey by remember { mutableStateOf<String?>(null) }
     val seenSelfCheckInIds = remember(viewModel.currentUserId) { mutableSetOf<String>() }
     var selfCheckInBaselineReady by remember(viewModel.currentUserId) { mutableStateOf(false) }
+    var adminRosterSnapshot by remember(viewModel.currentUserId) { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var adminRosterBaselineReady by remember(viewModel.currentUserId) { mutableStateOf(false) }
 
     LaunchedEffect(announcements.firstOrNull()?.id) {
         val latest = announcements.firstOrNull()
-        if (latest != null && latest.id != lastNotifiedAnnId && latest.sendPushNotification) {
+        if (latest != null && latest.id != lastNotifiedAnnId) {
             lastNotifiedAnnId = latest.id
-            BattleBoxNotificationHelper.showAnnouncementNotification(
-                context = context,
-                idSeed = latest.id,
-                title = "Battle Box: ${latest.title}",
-                body = "${latest.message}${if (latest.effectiveHours.isNotBlank()) " (${latest.effectiveHours})" else ""}"
+            if (latest.sendPushNotification) {
+                BattleBoxNotificationHelper.showAnnouncementNotification(
+                    context = context,
+                    idSeed = latest.id,
+                    title = "Battle Box : FFF — ${latest.title}",
+                    body = "${latest.message}${if (latest.effectiveHours.isNotBlank()) " (${latest.effectiveHours})" else ""}"
+                )
+            }
+            viewModel.emitHudAlert(
+                badge = latest.statusType.uppercase(),
+                title = latest.title,
+                message = latest.message,
+                accentColor = CyberCyan,
+                sound = BattleBoxSoundEngine.SoundType.USER_ALERT_BANNER
             )
+        }
+    }
+
+    LaunchedEffect(mySubscriptions) {
+        val nowMs = System.currentTimeMillis()
+        val threeDaysMs = 3L * 86_400_000L
+        val candidate = mySubscriptions.firstOrNull { sub ->
+            val endMs = sub.currentPeriodEnd?.toDate()?.time
+            sub.preDebitNotified ||
+                sub.status == MemberSubscription.STATUS_EXPIRED ||
+                sub.status == MemberSubscription.STATUS_CANCEL_REQUESTED ||
+                (endMs != null && endMs - nowMs <= threeDaysMs)
+        }
+        if (candidate != null) {
+            val alertKey = "${candidate.id}_${candidate.status}_${candidate.preDebitNotified}"
+            if (alertKey != lastRenewalAlertKey) {
+                lastRenewalAlertKey = alertKey
+                val renewalTitle = if (candidate.preDebitNotified) {
+                    "UPI AutoPay Pre-Debit Notice"
+                } else {
+                    "Membership Renewal Alert (${candidate.planName})"
+                }
+                val renewalBody = "Status: ${candidate.status.uppercase()} • ₹${candidate.amountInr} • Tap Plans to renew or manage AutoPay."
+                BattleBoxNotificationHelper.showBillingReminderNotification(
+                    context = context,
+                    idSeed = alertKey,
+                    title = renewalTitle,
+                    body = renewalBody
+                )
+                viewModel.emitHudAlert(
+                    badge = "RENEWAL",
+                    title = renewalTitle,
+                    message = renewalBody,
+                    accentColor = CyberAmber,
+                    sound = BattleBoxSoundEngine.SoundType.MEMBERSHIP_RENEWAL
+                )
+            }
         }
     }
 
@@ -364,8 +439,75 @@ private fun AuthenticatedBattleBoxShell(
                     )
                 }
 
-                val isStaffRole = resolvedDestination == RoleDashboardDestination.TRAINER_HOME ||
-                    resolvedDestination == RoleDashboardDestination.ADMIN_HOME
+                val isAdminRole = resolvedDestination == RoleDashboardDestination.ADMIN_HOME
+                val isStaffRole = resolvedDestination == RoleDashboardDestination.TRAINER_HOME || isAdminRole
+
+                val activeSession = myAttendance.firstOrNull {
+                    it.status == AttendanceRecord.STATUS_CHECKED_IN
+                }
+
+                // Geofence Auto-Out watcher: if checked in and user exits radius (m) or exceeds max GPS (m), auto check out
+                LaunchedEffect(activeSession?.id, gymConfig.latitude, gymConfig.longitude, gymConfig.geofenceRadiusM, gymConfig.maxGpsAccuracyM) {
+                    val session = activeSession ?: return@LaunchedEffect
+                    while (isActive) {
+                        val hasLoc = ContextCompat.checkSelfPermission(
+                            context,
+                            Manifest.permission.ACCESS_FINE_LOCATION
+                        ) == PackageManager.PERMISSION_GRANTED ||
+                            ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.ACCESS_COARSE_LOCATION
+                            ) == PackageManager.PERMISSION_GRANTED
+                        if (hasLoc) {
+                            val latestFix = GeofenceUtils.fetchCurrentLocation(context)
+                            if (latestFix != null) {
+                                deviceFix = latestFix
+                                val exitEval = GeofenceUtils.evaluateGeofenceExit(latestFix, gymConfig)
+                                if (!exitEval.isInsideGeofence) {
+                                    viewModel.checkGeofenceAutoOut(context, session, latestFix)
+                                    break
+                                }
+                            }
+                        }
+                        delay(15_000L)
+                    }
+                }
+
+                // Admin notification sound + HUD banner when anyone joins OR leaves liveRoster
+                LaunchedEffect(liveRoster, isAdminRole) {
+                    if (!isAdminRole) return@LaunchedEffect
+                    val currentMap = liveRoster.associate { it.id to it.memberName }
+                    if (!adminRosterBaselineReady) {
+                        adminRosterSnapshot = currentMap
+                        adminRosterBaselineReady = true
+                    } else {
+                        val joined = currentMap.filterKeys { it !in adminRosterSnapshot }
+                        val left = adminRosterSnapshot.filterKeys { it !in currentMap }
+                        adminRosterSnapshot = currentMap
+                        when {
+                            joined.isNotEmpty() -> {
+                                val firstName = joined.values.first()
+                                viewModel.emitHudAlert(
+                                    badge = "FLOOR JOIN",
+                                    title = "$firstName Checked In",
+                                    message = "${joined.size} member(s) entered Battle Box : FFF (${currentMap.size} in gym).",
+                                    accentColor = CyberNeonGreen,
+                                    sound = BattleBoxSoundEngine.SoundType.ADMIN_JOIN_LEAVE
+                                )
+                            }
+                            left.isNotEmpty() -> {
+                                val firstName = left.values.first()
+                                viewModel.emitHudAlert(
+                                    badge = "FLOOR EXIT",
+                                    title = "$firstName Checked Out",
+                                    message = "${left.size} member(s) left the floor (${currentMap.size} in gym).",
+                                    accentColor = CyberAmber,
+                                    sound = BattleBoxSoundEngine.SoundType.ADMIN_JOIN_LEAVE
+                                )
+                            }
+                        }
+                    }
+                }
 
                 // Real-time Wall QR self check-in notification alerts on Trainer & Admin UI
                 LaunchedEffect(liveRoster, isStaffRole) {
@@ -387,6 +529,13 @@ private fun AuthenticatedBattleBoxShell(
                                 )
                             }
                             val latest = newArrivals.first()
+                            viewModel.emitHudAlert(
+                                badge = "WALL QR IN",
+                                title = "Self Check-In: ${latest.memberName}",
+                                message = "Verified via permanent Wall QR (${latest.distanceMeters.toInt()}m GPS).",
+                                accentColor = CyberNeonGreen,
+                                sound = BattleBoxSoundEngine.SoundType.PASS_CHECK_IN
+                            )
                             viewModel.showBanner(
                                 "Wall QR Self Check-In: ${latest.memberName} (${latest.distanceMeters.toInt()}m GPS)"
                             )
@@ -423,9 +572,8 @@ private fun AuthenticatedBattleBoxShell(
                     }
                 }
 
-                val activeSession = myAttendance.firstOrNull {
-                    it.status == AttendanceRecord.STATUS_CHECKED_IN
-                }
+                val streakDays = workoutProfile.streakDays
+                val bmiText = WorkoutProfile.formatBmi(workoutProfile.bmiRatio)
 
                 BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                     val useRail = maxWidth >= 680.dp
@@ -440,10 +588,36 @@ private fun AuthenticatedBattleBoxShell(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                                     ) {
-                                        BattleBoxCrest(size = 34.dp)
-                                        Text(
-                                            text = gymConfig.gymName.uppercase(),
-                                            style = MaterialTheme.typography.headlineMedium
+                                        BattleBoxCrest(size = 36.dp)
+                                        Column {
+                                            Text(
+                                                text = "BATTLE BOX : FFF",
+                                                style = MaterialTheme.typography.titleLarge,
+                                                fontWeight = FontWeight.ExtraBold
+                                            )
+                                            Text(
+                                                text = "FIGHT FOR FITNESS",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = CyberCyan
+                                            )
+                                        }
+                                    }
+                                },
+                                actions = {
+                                    IconButton(
+                                        onClick = { viewModel.toggleSoundMute() },
+                                        modifier = Modifier
+                                            .size(48.dp)
+                                            .testTag("hud_sound_toggle_button")
+                                    ) {
+                                        Icon(
+                                            imageVector = if (isSoundMuted) {
+                                                Icons.AutoMirrored.Filled.VolumeOff
+                                            } else {
+                                                Icons.AutoMirrored.Filled.VolumeUp
+                                            },
+                                            contentDescription = if (isSoundMuted) "Unmute HUD sounds" else "Mute HUD sounds",
+                                            tint = if (isSoundMuted) MaterialTheme.colorScheme.onSurfaceVariant else CyberNeonGreen
                                         )
                                     }
                                 },
@@ -453,17 +627,19 @@ private fun AuthenticatedBattleBoxShell(
                             )
                         },
                         floatingActionButton = {
-                            FloatingActionButton(
-                                onClick = { showConcierge = true },
-                                containerColor = MaterialTheme.colorScheme.primary,
-                                contentColor = MaterialTheme.colorScheme.onPrimary,
-                                modifier = Modifier.testTag("concierge_fab")
-                            ) {
-                                Icon(Icons.Default.AutoAwesome, contentDescription = "Open Battle Box AI Concierge")
+                            if (!isWorkoutMode) {
+                                FloatingActionButton(
+                                    onClick = { showConcierge = true },
+                                    containerColor = MaterialTheme.colorScheme.primary,
+                                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                                    modifier = Modifier.testTag("concierge_fab")
+                                ) {
+                                    Icon(Icons.Default.AutoAwesome, contentDescription = "Open Battle Box AI Concierge")
+                                }
                             }
                         },
                         bottomBar = {
-                            if (!useRail) {
+                            if (!useRail && !isWorkoutMode) {
                                 NavigationBar {
                                     tabs.forEach { tab ->
                                         val selected = currentRoute == tab.route
@@ -484,147 +660,200 @@ private fun AuthenticatedBattleBoxShell(
                             }
                         }
                     ) { innerPadding ->
-                        Row(
+                        Box(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .padding(innerPadding)
                         ) {
-                            if (useRail) {
-                                NavigationRail(
-                                    modifier = Modifier.fillMaxHeight()
-                                ) {
-                                    Spacer(modifier = Modifier.height(12.dp))
-                                    tabs.forEach { tab ->
-                                        val selected = currentRoute == tab.route
-                                        NavigationRailItem(
-                                            selected = selected,
-                                            onClick = { navigateTopLevel(tab.route) },
-                                            icon = {
-                                                Icon(
-                                                    imageVector = if (selected) tab.selectedIcon else tab.unselectedIcon,
-                                                    contentDescription = tab.label
-                                                )
-                                            },
-                                            label = { Text(tab.label) },
-                                            modifier = Modifier.testTag("rail_${tab.route}")
+                            if (isWorkoutMode) {
+                                WorkoutModeShell(
+                                    user = effectiveProfile,
+                                    workoutProfile = workoutProfile,
+                                    workoutLogs = workoutLogs,
+                                    activeSession = activeSession,
+                                    isBusy = isBusy,
+                                    onExitWorkoutMode = { viewModel.toggleWorkoutMode(false) },
+                                    onQuickLogMacros = { kcal, proteinG, activeMin ->
+                                        viewModel.logQuickMacros(kcal, proteinG, activeMin)
+                                    },
+                                    onUpdateBmiMetrics = { w, h ->
+                                        viewModel.updateBodyMetrics(w, h)
+                                    },
+                                    onRestTimerFinished = {
+                                        viewModel.emitHudAlert(
+                                            badge = "REST DONE",
+                                            title = "Rest Countdown Complete",
+                                            message = "00:00 reached — next set on Dudhnoi floor!",
+                                            accentColor = CyberNeonGreen,
+                                            sound = BattleBoxSoundEngine.SoundType.REST_TIMER_DONE
                                         )
-                                    }
-                                }
-                            }
-
-                            Box(modifier = Modifier.weight(1f)) {
-                                NavHost(
-                                    navController = navController,
-                                    startDestination = BattleBoxRoute.ROLE_ROUTER
-                                ) {
-                                    composable(BattleBoxRoute.ROLE_ROUTER) {
-                                        Box(
-                                            modifier = Modifier.fillMaxSize(),
-                                            contentAlignment = Alignment.Center
+                                    },
+                                    onCompleteWorkout = { title, dur, vol, sets, exCount, prs, prLabel ->
+                                        viewModel.completeWorkoutSession(
+                                            workoutTitle = title,
+                                            durationSeconds = dur,
+                                            totalVolumeKg = vol,
+                                            completedSets = sets,
+                                            exercisesCompleted = exCount,
+                                            updatedPrs = prs,
+                                            prLabel = prLabel
+                                        )
+                                    },
+                                    onShowMessage = { msg -> viewModel.showBanner(msg) }
+                                )
+                            } else {
+                                Row(modifier = Modifier.fillMaxSize()) {
+                                    if (useRail) {
+                                        NavigationRail(
+                                            modifier = Modifier.fillMaxHeight()
                                         ) {
-                                            Column(
-                                                horizontalAlignment = Alignment.CenterHorizontally,
-                                                verticalArrangement = Arrangement.spacedBy(10.dp)
-                                            ) {
-                                                CircularProgressIndicator()
-                                                Text(
-                                                    text = "Routing to ${resolvedDestination.dashboardLabel}...",
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            Spacer(modifier = Modifier.height(12.dp))
+                                            tabs.forEach { tab ->
+                                                val selected = currentRoute == tab.route
+                                                NavigationRailItem(
+                                                    selected = selected,
+                                                    onClick = { navigateTopLevel(tab.route) },
+                                                    icon = {
+                                                        Icon(
+                                                            imageVector = if (selected) tab.selectedIcon else tab.unselectedIcon,
+                                                            contentDescription = tab.label
+                                                        )
+                                                    },
+                                                    label = { Text(tab.label) },
+                                                    modifier = Modifier.testTag("rail_${tab.route}")
                                                 )
                                             }
                                         }
                                     }
 
-                                    composable(BattleBoxRoute.MEMBER_HOME) {
-                                        HomeDashboardScreen(
-                                            userProfile = effectiveProfile,
-                                            gymConfig = gymConfig,
-                                            gymPublicStatus = gymPublicStatus,
-                                            activeSession = activeSession,
-                                            liveRoster = liveRoster,
-                                            announcements = announcements,
-                                            deviceFix = deviceFix,
-                                            onOpenPassTab = { navigateTopLevel(BattleBoxRoute.PASS) },
-                                            onCheckOutActive = { attId -> viewModel.checkOut(attId) },
-                                            onOpenConcierge = { showConcierge = true },
-                                            onOpenAdminRoster = { navigateTopLevel(BattleBoxRoute.ADMIN_HOME) }
-                                        )
-                                    }
-
-                                    composable(BattleBoxRoute.TRAINER_HOME) {
-                                        TrainerRosterScreen(
-                                            currentUser = effectiveProfile,
-                                            assignedMembers = assignedMembers,
-                                            liveRoster = liveRoster,
-                                            gymConfig = gymConfig,
-                                            gymPublicStatus = gymPublicStatus,
-                                            announcements = announcements,
-                                            isBusy = isBusy,
-                                            onOpenScannerTab = { navigateTopLevel(BattleBoxRoute.SCANNER) },
-                                            onOpenPassTab = { navigateTopLevel(BattleBoxRoute.PASS) },
-                                            onCheckOutSession = { attId, name ->
-                                                viewModel.checkOut(attId, isAdminAction = false, memberName = name)
-                                            },
-                                            onSweepExpired = { records ->
-                                                viewModel.sweepExpired(records, isAdmin = false)
-                                            }
-                                        )
-                                    }
-
-                                    composable(BattleBoxRoute.SCANNER) {
-                                        QrAttendanceScannerScreen(
-                                            currentUser = effectiveProfile,
-                                            gymConfig = gymConfig,
-                                            gymPublicStatus = gymPublicStatus,
-                                            liveRoster = liveRoster,
-                                            recentRejections = rejections,
-                                            deviceFix = deviceFix,
-                                            lastScanOutcome = lastScanOutcome,
-                                            isBusy = isBusy,
-                                            onRefreshFix = { deviceFix = it },
-                                            onMemberQrScanned = { payload, fix ->
-                                                if (effectiveProfile.role == UserProfile.ROLE_ADMIN) {
-                                                    viewModel.performFrontDeskScan(payload, fix)
-                                                } else {
-                                                    viewModel.performTrainerQrScan(payload, fix)
+                                    Box(modifier = Modifier.weight(1f)) {
+                                        NavHost(
+                                            navController = navController,
+                                            startDestination = BattleBoxRoute.ROLE_ROUTER
+                                        ) {
+                                            composable(BattleBoxRoute.ROLE_ROUTER) {
+                                                Box(
+                                                    modifier = Modifier.fillMaxSize(),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Column(
+                                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                                                    ) {
+                                                        CircularProgressIndicator()
+                                                        Text(
+                                                            text = "Routing to ${resolvedDestination.dashboardLabel}...",
+                                                            style = MaterialTheme.typography.bodySmall,
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                        )
+                                                    }
                                                 }
-                                            },
-                                            onCheckOutSession = { attId, name ->
-                                                viewModel.checkOut(
-                                                    attendanceId = attId,
-                                                    isAdminAction = effectiveProfile.role == UserProfile.ROLE_ADMIN,
-                                                    memberName = name
-                                                )
-                                            },
-                                            onSweepExpired = { records ->
-                                                viewModel.sweepExpired(
-                                                    records = records,
-                                                    isAdmin = effectiveProfile.role == UserProfile.ROLE_ADMIN
-                                                )
-                                            },
-                                            onDismissOutcome = { viewModel.clearLastScanOutcome() }
-                                        )
-                                    }
+                                            }
 
-                                    composable(BattleBoxRoute.ADMIN_HOME) {
-                                        AdminConsoleScreen(
-                                            gymConfig = gymConfig,
-                                            gymPublicStatus = gymPublicStatus,
-                                            liveRoster = liveRoster,
-                                            allUsers = allUsers,
-                                            auditLogs = auditLogs,
-                                            rejections = rejections,
-                                            announcements = announcements,
-                                            paymentRequests = allPaymentRequests,
-                                            deliveryLogs = deliveryLogs,
-                                            plans = adminPlans,
-                                            allSubscriptions = allSubscriptions,
-                                            billingConfig = billingConfig,
-                                            deviceFix = deviceFix,
-                                            monthlyExportState = monthlyExportState,
-                                            isBusy = isBusy,
-                                            onOpenScannerTab = { navigateTopLevel(BattleBoxRoute.SCANNER) },
+                                            composable(BattleBoxRoute.MEMBER_HOME) {
+                                                HomeDashboardScreen(
+                                                    userProfile = effectiveProfile,
+                                                    gymConfig = gymConfig,
+                                                    gymPublicStatus = gymPublicStatus,
+                                                    activeSession = activeSession,
+                                                    liveRoster = liveRoster,
+                                                    announcements = announcements,
+                                                    deviceFix = deviceFix,
+                                                    streakDays = streakDays,
+                                                    bmiText = bmiText,
+                                                    onToggleWorkoutMode = { enabled ->
+                                                        viewModel.toggleWorkoutMode(enabled)
+                                                    },
+                                                    onOpenPassTab = { navigateTopLevel(BattleBoxRoute.PASS) },
+                                                    onCheckOutActive = { attId -> viewModel.checkOut(attId) },
+                                                    onOpenConcierge = { showConcierge = true },
+                                                    onOpenAdminRoster = { navigateTopLevel(BattleBoxRoute.ADMIN_HOME) }
+                                                )
+                                            }
+
+                                            composable(BattleBoxRoute.TRAINER_HOME) {
+                                                TrainerRosterScreen(
+                                                    currentUser = effectiveProfile,
+                                                    assignedMembers = assignedMembers,
+                                                    liveRoster = liveRoster,
+                                                    gymConfig = gymConfig,
+                                                    gymPublicStatus = gymPublicStatus,
+                                                    announcements = announcements,
+                                                    isBusy = isBusy,
+                                                    streakDays = streakDays,
+                                                    bmiText = bmiText,
+                                                    onToggleWorkoutMode = { enabled ->
+                                                        viewModel.toggleWorkoutMode(enabled)
+                                                    },
+                                                    onOpenScannerTab = { navigateTopLevel(BattleBoxRoute.SCANNER) },
+                                                    onOpenPassTab = { navigateTopLevel(BattleBoxRoute.PASS) },
+                                                    onCheckOutSession = { attId, name ->
+                                                        viewModel.checkOut(attId, isAdminAction = false, memberName = name)
+                                                    },
+                                                    onSweepExpired = { records ->
+                                                        viewModel.sweepExpired(records, isAdmin = false)
+                                                    }
+                                                )
+                                            }
+
+                                            composable(BattleBoxRoute.SCANNER) {
+                                                QrAttendanceScannerScreen(
+                                                    currentUser = effectiveProfile,
+                                                    gymConfig = gymConfig,
+                                                    gymPublicStatus = gymPublicStatus,
+                                                    liveRoster = liveRoster,
+                                                    recentRejections = rejections,
+                                                    deviceFix = deviceFix,
+                                                    lastScanOutcome = lastScanOutcome,
+                                                    isBusy = isBusy,
+                                                    onRefreshFix = { deviceFix = it },
+                                                    onMemberQrScanned = { payload, fix ->
+                                                        if (effectiveProfile.role == UserProfile.ROLE_ADMIN) {
+                                                            viewModel.performFrontDeskScan(payload, fix)
+                                                        } else {
+                                                            viewModel.performTrainerQrScan(payload, fix)
+                                                        }
+                                                    },
+                                                    onCheckOutSession = { attId, name ->
+                                                        viewModel.checkOut(
+                                                            attendanceId = attId,
+                                                            isAdminAction = effectiveProfile.role == UserProfile.ROLE_ADMIN,
+                                                            memberName = name
+                                                        )
+                                                    },
+                                                    onSweepExpired = { records ->
+                                                        viewModel.sweepExpired(
+                                                            records = records,
+                                                            isAdmin = effectiveProfile.role == UserProfile.ROLE_ADMIN
+                                                        )
+                                                    },
+                                                    onDismissOutcome = { viewModel.clearLastScanOutcome() }
+                                                )
+                                            }
+
+                                            composable(BattleBoxRoute.ADMIN_HOME) {
+                                                AdminConsoleScreen(
+                                                    gymConfig = gymConfig,
+                                                    gymPublicStatus = gymPublicStatus,
+                                                    liveRoster = liveRoster,
+                                                    allUsers = allUsers,
+                                                    auditLogs = auditLogs,
+                                                    rejections = rejections,
+                                                    announcements = announcements,
+                                                    paymentRequests = allPaymentRequests,
+                                                    deliveryLogs = deliveryLogs,
+                                                    plans = adminPlans,
+                                                    allSubscriptions = allSubscriptions,
+                                                    billingConfig = billingConfig,
+                                                    deviceFix = deviceFix,
+                                                    monthlyExportState = monthlyExportState,
+                                                    isBusy = isBusy,
+                                                    streakDays = streakDays,
+                                                    bmiText = bmiText,
+                                                    onToggleWorkoutMode = { enabled ->
+                                                        viewModel.toggleWorkoutMode(enabled)
+                                                    },
+                                                    onOpenScannerTab = { navigateTopLevel(BattleBoxRoute.SCANNER) },
                                             onFrontDeskScan = { payload, fix ->
                                                 viewModel.performFrontDeskScan(payload, fix)
                                             },
@@ -671,67 +900,75 @@ private fun AuthenticatedBattleBoxShell(
                                             onReconcileSandboxPayment = { req ->
                                                 viewModel.adminReconcileSandboxPayment(req)
                                             },
-                                            onSaveBillingConfig = { cfg -> viewModel.adminSaveBillingConfig(cfg) },
-                                            onCopyMessage = { msg -> viewModel.showBanner(msg) }
-                                        )
-                                    }
+                                                onSaveBillingConfig = { cfg -> viewModel.adminSaveBillingConfig(cfg) },
+                                                    onCopyMessage = { msg -> viewModel.showBanner(msg) }
+                                                )
+                                            }
 
-                                    composable(BattleBoxRoute.PASS) {
-                                        PassAndCheckInScreen(
-                                            userProfile = effectiveProfile,
-                                            gymConfig = gymConfig,
-                                            deviceFix = deviceFix,
-                                            myAttendance = myAttendance,
-                                            rejections = rejections,
-                                            isBusy = isBusy,
-                                            onRefreshFix = { deviceFix = it },
-                                            onKioskCheckIn = { payload, fix ->
-                                                viewModel.performKioskCheckIn(payload, effectiveProfile, fix)
-                                            },
-                                            onCheckOut = { attId -> viewModel.checkOut(attId) },
-                                            onCopyMessage = { msg -> viewModel.showBanner(msg) }
-                                        )
-                                    }
+                                            composable(BattleBoxRoute.PASS) {
+                                                PassAndCheckInScreen(
+                                                    userProfile = effectiveProfile,
+                                                    gymConfig = gymConfig,
+                                                    deviceFix = deviceFix,
+                                                    myAttendance = myAttendance,
+                                                    rejections = rejections,
+                                                    isBusy = isBusy,
+                                                    onRefreshFix = { deviceFix = it },
+                                                    onKioskCheckIn = { payload, fix ->
+                                                        viewModel.performKioskCheckIn(payload, effectiveProfile, fix)
+                                                    },
+                                                    onCheckOut = { attId -> viewModel.checkOut(attId) },
+                                                    onCopyMessage = { msg -> viewModel.showBanner(msg) }
+                                                )
+                                            }
 
-                                    composable(BattleBoxRoute.PLANS) {
-                                        PlansAndBillingScreen(
-                                            userProfile = effectiveProfile,
-                                            plans = plans,
-                                            subscriptions = mySubscriptions,
-                                            paymentRequests = myPaymentRequests,
-                                            payments = myPayments,
-                                            notificationPref = notificationPref,
-                                            billingConfig = billingConfig,
-                                            isBusy = isBusy,
-                                            onCreateCheckoutIntent = { plan, mode, upiApp ->
-                                                viewModel.createCheckoutIntent(effectiveProfile, plan, mode, upiApp)
-                                            },
-                                            onCancelAutopay = { subId ->
-                                                viewModel.requestAutopayCancellation(subId)
-                                            },
-                                            onSaveNotificationPreference = { pref ->
-                                                viewModel.saveNotificationPreference(pref)
-                                            },
-                                            onShowMessage = { msg -> viewModel.showBanner(msg) }
-                                        )
-                                    }
+                                            composable(BattleBoxRoute.PLANS) {
+                                                PlansAndBillingScreen(
+                                                    userProfile = effectiveProfile,
+                                                    plans = plans,
+                                                    subscriptions = mySubscriptions,
+                                                    paymentRequests = myPaymentRequests,
+                                                    payments = myPayments,
+                                                    notificationPref = notificationPref,
+                                                    billingConfig = billingConfig,
+                                                    isBusy = isBusy,
+                                                    onCreateCheckoutIntent = { plan, mode, upiApp ->
+                                                        viewModel.createCheckoutIntent(effectiveProfile, plan, mode, upiApp)
+                                                    },
+                                                    onCancelAutopay = { subId ->
+                                                        viewModel.requestAutopayCancellation(subId)
+                                                    },
+                                                    onSaveNotificationPreference = { pref ->
+                                                        viewModel.saveNotificationPreference(pref)
+                                                    },
+                                                    onShowMessage = { msg -> viewModel.showBanner(msg) }
+                                                )
+                                            }
 
-                                    composable(BattleBoxRoute.PROFILE) {
-                                        ProfileAndLegalScreen(
-                                            userProfile = effectiveProfile,
-                                            gymConfig = gymConfig,
-                                            myAttendance = myAttendance,
-                                            mySubscriptions = mySubscriptions,
-                                            consentReceipts = myConsents,
-                                            isDarkTheme = isDarkTheme,
-                                            onToggleTheme = { viewModel.toggleDarkTheme() },
-                                            onOpenPlansTab = { navigateTopLevel(BattleBoxRoute.PLANS) },
-                                            onOpenPassTab = { navigateTopLevel(BattleBoxRoute.PASS) },
-                                            onSignOut = onSignOut
-                                        )
+                                            composable(BattleBoxRoute.PROFILE) {
+                                                ProfileAndLegalScreen(
+                                                    userProfile = effectiveProfile,
+                                                    gymConfig = gymConfig,
+                                                    myAttendance = myAttendance,
+                                                    mySubscriptions = mySubscriptions,
+                                                    consentReceipts = myConsents,
+                                                    isDarkTheme = isDarkTheme,
+                                                    onToggleTheme = { viewModel.toggleDarkTheme() },
+                                                    onOpenPlansTab = { navigateTopLevel(BattleBoxRoute.PLANS) },
+                                                    onOpenPassTab = { navigateTopLevel(BattleBoxRoute.PASS) },
+                                                    onSignOut = onSignOut
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                             }
+
+                            CyberpunkNotificationBanner(
+                                alert = hudAlert,
+                                onDismiss = { viewModel.dismissHudAlert() },
+                                modifier = Modifier.align(Alignment.TopCenter)
+                            )
                         }
                     }
 

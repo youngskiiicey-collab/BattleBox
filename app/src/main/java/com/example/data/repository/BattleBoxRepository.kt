@@ -677,6 +677,51 @@ class BattleBoxRepository(private val db: FirebaseFirestore) {
             }
         }
 
+    suspend fun autoCheckOutIfOutsideGeofence(
+        activeSession: AttendanceRecord,
+        deviceFix: DeviceFix,
+        gymConfig: GymConfig
+    ): Result<com.example.security.GeofenceCheckResult> = runCatching {
+        val check = GeofenceUtils.evaluateGeofenceExit(deviceFix, gymConfig)
+        if (check.isInsideGeofence) {
+            return@runCatching check
+        }
+        val attRef = db.collection("attendance").document(activeSession.id)
+        val statusRef = db.collection("gym_public").document(GYM_STATUS_DOC)
+        try {
+            db.runTransaction { tx ->
+                val attSnap = tx.get(attRef)
+                val statusSnap = tx.get(statusRef)
+                if (attSnap.getString("status") == AttendanceRecord.STATUS_CHECKED_IN) {
+                    tx.update(
+                        attRef,
+                        mapOf(
+                            "status" to AttendanceRecord.STATUS_AUTO_CHECKED_OUT,
+                            "checkOutAt" to FieldValue.serverTimestamp(),
+                            "updatedAt" to FieldValue.serverTimestamp()
+                        )
+                    )
+                    if (statusSnap.exists()) {
+                        val count = statusSnap.getLong("inGymCount") ?: 0L
+                        tx.update(
+                            statusRef,
+                            mapOf(
+                                "inGymCount" to (count - 1L).coerceAtLeast(0L),
+                                "updatedAt" to FieldValue.serverTimestamp()
+                            )
+                        )
+                    }
+                }
+            }.await()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.UPDATE, attRef.path)
+            throw e
+        }
+        check
+    }
+
     suspend fun sweepExpiredSessions(records: List<AttendanceRecord>, isAdmin: Boolean) {
         val nowMs = System.currentTimeMillis()
         val expired = records.filter {

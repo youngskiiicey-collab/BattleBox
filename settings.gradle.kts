@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "Battle Box"
+rootProject.name = "Battle Box FFF"
 
 include(":app")

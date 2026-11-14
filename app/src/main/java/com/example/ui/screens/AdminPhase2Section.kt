@@ -9,10 +9,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -38,6 +40,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.example.data.legal.WhatsAppTemplates
 import com.example.data.model.GymAnnouncement
 import com.example.data.model.GymPlan
@@ -101,7 +105,123 @@ fun AdminPhase2Section(
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        // 1. Editable Membership Plans Catalog (Basic/Premium, INR + GST)
+        // 1. Post Live In-App Banner & Push/WhatsApp Broadcast (above Editable Membership Plans)
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            shape = MaterialTheme.shapes.large,
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("admin_post_banner_card")
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(text = "Post Open / Closed / Special Hours Banner", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    text = "Updates the live in-app banner for all members and trainers immediately and logs an audit entry.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(
+                        GymAnnouncement.TYPE_OPEN to "Open",
+                        GymAnnouncement.TYPE_CLOSED to "Closed",
+                        GymAnnouncement.TYPE_SPECIAL_HOURS to "Special Hours",
+                        GymAnnouncement.TYPE_HOLIDAY to "Holiday"
+                    ).forEach { (key, label) ->
+                        FilterChip(
+                            selected = statusType == key,
+                            onClick = { statusType = key },
+                            label = { Text(label) }
+                        )
+                    }
+                }
+
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text("Headline (e.g. Republic Day Hours)") },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("admin_announcement_title")
+                )
+                OutlinedTextField(
+                    value = message,
+                    onValueChange = { message = it },
+                    label = { Text("Announcement Message") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("admin_announcement_message")
+                )
+                OutlinedTextField(
+                    value = effectiveHours,
+                    onValueChange = { effectiveHours = it },
+                    label = { Text("Effective Hours / Dates (IST)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Trigger FCM / Device Push Alert", style = MaterialTheme.typography.bodySmall)
+                    Switch(checked = sendPush, onCheckedChange = { sendPush = it })
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Queue WhatsApp Closure Template", style = MaterialTheme.typography.bodySmall)
+                    Switch(checked = sendWhatsappClosure, onCheckedChange = { sendWhatsappClosure = it })
+                }
+
+                com.example.ui.components.CyberpunkButton(
+                    text = "BROADCAST BANNER TO ALL",
+                    onClick = {
+                        onPostAnnouncement(
+                            statusType,
+                            title.ifBlank { "${statusType.replace("_", " ").uppercase()} Notice" },
+                            message.ifBlank { "Please note updated Battle Box : FFF floor timings." },
+                            effectiveHours,
+                            sendPush,
+                            sendWhatsappClosure
+                        )
+                        title = ""
+                        message = ""
+                    },
+                    enabled = !isBusy,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("admin_post_announcement_button")
+                )
+
+                if (announcements.isNotEmpty()) {
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+                    Text("Active Banners (${announcements.size})", style = MaterialTheme.typography.titleSmall)
+                    announcements.forEach { ann ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("[${ann.statusType.uppercase()}] ${ann.title}", style = MaterialTheme.typography.titleSmall)
+                                Text(ann.message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            TextButton(onClick = { onClearAnnouncement(ann.id) }) { Text("Clear") }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Editable Membership Plans Catalog (Basic/Premium, INR + GST)
         Card(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             shape = MaterialTheme.shapes.large,
@@ -180,7 +300,7 @@ fun AdminPhase2Section(
             }
         }
 
-        // 2. Editable Member Subscriptions & Active Memberships
+        // 3. Editable Member Subscriptions & Active Memberships
         Card(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             shape = MaterialTheme.shapes.large,
@@ -266,7 +386,7 @@ fun AdminPhase2Section(
             }
         }
 
-        // 3. Editable Pending Pay Queue + Sandbox Settlement
+        // 4. Editable Pending Pay Queue + Sandbox Settlement
         Card(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             shape = MaterialTheme.shapes.large,
@@ -334,127 +454,12 @@ fun AdminPhase2Section(
             }
         }
 
-        // 4. Phase 3 Gateway & AutoPay Integration Card
+        // 5. Phase 3 Gateway & AutoPay Integration Card
         AdminPhase3IntegrationCard(
             billingConfig = billingConfig,
             isBusy = isBusy,
             onSaveBillingConfig = onSaveBillingConfig
         )
-
-        // 5. Post Live In-App Banner & Push/WhatsApp Broadcast
-        Card(
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            shape = MaterialTheme.shapes.large
-        ) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Text(text = "Post Open / Closed / Special Hours Banner", style = MaterialTheme.typography.titleMedium)
-                Text(
-                    text = "Updates the live in-app banner for all members and trainers immediately and logs an audit entry.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(
-                        GymAnnouncement.TYPE_OPEN to "Open",
-                        GymAnnouncement.TYPE_CLOSED to "Closed",
-                        GymAnnouncement.TYPE_SPECIAL_HOURS to "Special Hours",
-                        GymAnnouncement.TYPE_HOLIDAY to "Holiday"
-                    ).forEach { (key, label) ->
-                        FilterChip(
-                            selected = statusType == key,
-                            onClick = { statusType = key },
-                            label = { Text(label) }
-                        )
-                    }
-                }
-
-                OutlinedTextField(
-                    value = title,
-                    onValueChange = { title = it },
-                    label = { Text("Headline (e.g. Republic Day Hours)") },
-                    singleLine = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("admin_announcement_title")
-                )
-                OutlinedTextField(
-                    value = message,
-                    onValueChange = { message = it },
-                    label = { Text("Announcement Message") },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("admin_announcement_message")
-                )
-                OutlinedTextField(
-                    value = effectiveHours,
-                    onValueChange = { effectiveHours = it },
-                    label = { Text("Effective Hours / Dates (IST)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Trigger FCM / Device Push Alert", style = MaterialTheme.typography.bodySmall)
-                    Switch(checked = sendPush, onCheckedChange = { sendPush = it })
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Queue WhatsApp Closure Template", style = MaterialTheme.typography.bodySmall)
-                    Switch(checked = sendWhatsappClosure, onCheckedChange = { sendWhatsappClosure = it })
-                }
-
-                Button(
-                    onClick = {
-                        onPostAnnouncement(
-                            statusType,
-                            title.ifBlank { "${statusType.replace("_", " ").uppercase()} Notice" },
-                            message.ifBlank { "Please note updated Battle Box floor timings." },
-                            effectiveHours,
-                            sendPush,
-                            sendWhatsappClosure
-                        )
-                        title = ""
-                        message = ""
-                    },
-                    enabled = !isBusy,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp)
-                        .testTag("admin_post_announcement_button")
-                ) {
-                    Text("Broadcast Banner to Members & Trainers")
-                }
-
-                if (announcements.isNotEmpty()) {
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
-                    Text("Active Banners (${announcements.size})", style = MaterialTheme.typography.titleSmall)
-                    announcements.forEach { ann ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("[${ann.statusType.uppercase()}] ${ann.title}", style = MaterialTheme.typography.titleSmall)
-                                Text(ann.message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            TextButton(onClick = { onClearAnnouncement(ann.id) }) { Text("Clear") }
-                        }
-                    }
-                }
-            }
-        }
 
         // 6. Meta WhatsApp Cloud API Utility Templates & Delivery Logs
         Card(
@@ -587,12 +592,30 @@ fun AdminPhase2Section(
     }
 
     if (showAssignSubPicker) {
-        AlertDialog(
+        Dialog(
             onDismissRequest = { showAssignSubPicker = false },
-            title = { Text("Select User for Membership Edit") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    allUsers.take(15).forEach { user ->
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                shape = MaterialTheme.shapes.large,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+                    .widthIn(max = 520.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .padding(18.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "Select User for Membership Edit",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    allUsers.take(25).forEach { user ->
                         val existingSub = subscriptions.firstOrNull { it.userId == user.userId }
                         OutlinedButton(
                             onClick = {
@@ -618,12 +641,14 @@ fun AdminPhase2Section(
                             Text("${user.displayName} (${user.planTier.uppercase()} • ${user.membershipStatus.uppercase()})")
                         }
                     }
+                    TextButton(
+                        onClick = { showAssignSubPicker = false },
+                        modifier = Modifier.align(Alignment.End)
+                    ) {
+                        Text("Close")
+                    }
                 }
-            },
-            confirmButton = {},
-            dismissButton = {
-                TextButton(onClick = { showAssignSubPicker = false }) { Text("Close") }
             }
-        )
+        }
     }
 }

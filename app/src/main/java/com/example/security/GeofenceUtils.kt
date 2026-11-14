@@ -23,8 +23,45 @@ data class DeviceFix(
     val accuracyMeters: Double
 )
 
+data class GeofenceCheckResult(
+    val isInsideGeofence: Boolean,
+    val distanceMeters: Double,
+    val accuracyMeters: Double,
+    val maxRadiusMeters: Double,
+    val maxAccuracyMeters: Double,
+    val violationReason: String?
+)
+
 object GeofenceUtils {
     private const val EARTH_RADIUS_M = 6_371_000.0
+
+    fun evaluateGeofenceExit(fix: DeviceFix, config: GymConfig): GeofenceCheckResult {
+        val distance = haversineMeters(
+            lat1 = fix.latitude,
+            lon1 = fix.longitude,
+            lat2 = config.latitude,
+            lon2 = config.longitude
+        )
+        val outsideRadius = distance > config.geofenceRadiusM
+        val poorAccuracy = fix.accuracyMeters > config.maxGpsAccuracyM
+        val reason = when {
+            outsideRadius && poorAccuracy ->
+                "Outside gym geofence (${distance.toInt()}m > ${config.geofenceRadiusM.toInt()}m) and GPS accuracy too low (±${fix.accuracyMeters.toInt()}m > ${config.maxGpsAccuracyM.toInt()}m)."
+            outsideRadius ->
+                "Left ${config.gymName} geofence (${distance.toInt()}m > ${config.geofenceRadiusM.toInt()}m radius)."
+            poorAccuracy ->
+                "GPS accuracy exceeded limit (±${fix.accuracyMeters.toInt()}m > ${config.maxGpsAccuracyM.toInt()}m max GPS)."
+            else -> null
+        }
+        return GeofenceCheckResult(
+            isInsideGeofence = reason == null,
+            distanceMeters = distance,
+            accuracyMeters = fix.accuracyMeters,
+            maxRadiusMeters = config.geofenceRadiusM,
+            maxAccuracyMeters = config.maxGpsAccuracyM,
+            violationReason = reason
+        )
+    }
 
     fun haversineMeters(
         lat1: Double,

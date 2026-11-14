@@ -52,6 +52,7 @@ import com.example.security.GeofenceUtils
 import com.example.security.QrTokenSigner
 import com.example.ui.components.QrScannerSheet
 import com.example.ui.components.RotatingQrCard
+import com.example.utils.BattleBoxSoundEngine
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -370,6 +371,7 @@ fun PassAndCheckInScreen(
             subtitle = "Point camera at the permanent Battle Box Wall QR poster pasted in the gym to self check-in.",
             onQrScanned = { scannedPayload ->
                 showScanner = false
+                BattleBoxSoundEngine.play(BattleBoxSoundEngine.SoundType.QR_SCAN_LOCK)
                 scope.launch {
                     val latestFix = GeofenceUtils.fetchCurrentLocation(context) ?: deviceFix
                     onRefreshFix(latestFix)

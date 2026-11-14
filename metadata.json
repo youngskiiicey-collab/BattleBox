@@ -1,6 +1,6 @@
 {
-  "name": "Battle Box",
-  "description": "Gym management app for Battle Box featuring Google Sign-In, role-based Member/Trainer/Admin routing, DPDP Act 2023 Terms & Privacy onboarding, rotating QR & geofenced attendance, live gym occupancy, and audit logs.",
+  "name": "Battle Box : FFF",
+  "description": "Fight For Fitness gym management & workout tracking app for Battle Box : FFF (Dudhnoi) featuring Google Sign-In, role-based Member/Trainer/Admin routing, geofenced Wall QR & CameraX attendance with auto-checkout, 4-tab Jerai/Aerofit workout tracking, BMI analytics, and PDF/CSV exports.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

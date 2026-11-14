@@ -46,7 +46,7 @@ data class UserProfile(
 @IgnoreExtraProperties
 data class GymConfig(
     @DocumentId val id: String = "",
-    val gymName: String = "Battle Box Fight Club",
+    val gymName: String = "Battle Box : FFF",
     val mapsUrl: String = "https://maps.app.goo.gl/4ji9NFtZwpXZSiTN9",
     val latitude: Double = 25.9833,
     val longitude: Double = 90.7833,

@@ -52,9 +52,15 @@ import com.example.data.model.GymPublicStatus
 import com.example.data.model.UserProfile
 import com.example.security.DeviceFix
 import com.example.security.GeofenceUtils
+import com.example.ui.components.BattleBoxCrest
+import com.example.ui.components.CyberpunkButton
+import com.example.ui.components.CyberpunkOutlinedButton
 import com.example.ui.components.EmbeddedMapCard
 import com.example.ui.components.LiveOccupancyMonitorCard
 import com.example.ui.components.MapsPhotoShowcaseCard
+import com.example.ui.components.WorkoutModeToggleBar
+import com.example.ui.theme.CyberCyan
+import com.example.ui.theme.CyberNeonGreen
 import com.example.ui.theme.StatusClosedRed
 import com.example.ui.theme.StatusOpenGreen
 import java.text.SimpleDateFormat
@@ -70,6 +76,9 @@ fun HomeDashboardScreen(
     liveRoster: List<AttendanceRecord>,
     announcements: List<GymAnnouncement> = emptyList(),
     deviceFix: DeviceFix?,
+    streakDays: Int = 0,
+    bmiText: String? = null,
+    onToggleWorkoutMode: (Boolean) -> Unit = {},
     onOpenPassTab: () -> Unit,
     onCheckOutActive: (String) -> Unit,
     onOpenConcierge: () -> Unit,
@@ -90,6 +99,13 @@ fun HomeDashboardScreen(
             modifier = Modifier.widthIn(max = 720.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            WorkoutModeToggleBar(
+                isWorkoutMode = false,
+                streakDays = streakDays,
+                bmiText = bmiText,
+                onToggleWorkoutMode = onToggleWorkoutMode
+            )
+
             // Live In-App Announcement Banner (Open / Closed / Special Hours / Holiday)
             announcements.firstOrNull()?.let { ann ->
                 val isClosed = ann.statusType == GymAnnouncement.TYPE_CLOSED || ann.statusType == GymAnnouncement.TYPE_HOLIDAY
@@ -204,17 +220,23 @@ fun HomeDashboardScreen(
                         }
                     }
 
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(
-                            text = "WELCOME, ${userProfile.displayName.uppercase()}",
-                            style = MaterialTheme.typography.headlineLarge,
-                            color = Color.White
-                        )
-                        Text(
-                            text = "Dudhnoi, Assam • AM ${gymConfig.morningOpen}–${gymConfig.morningClose} • PM ${gymConfig.eveningOpen}–${gymConfig.eveningClose} IST",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFFE2E8F0)
-                        )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        BattleBoxCrest(size = 44.dp)
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                text = "WELCOME, ${userProfile.displayName.uppercase()}",
+                                style = MaterialTheme.typography.headlineLarge,
+                                color = Color.White
+                            )
+                            Text(
+                                text = "${gymConfig.gymName} • Dudhnoi • AM ${gymConfig.morningOpen}–${gymConfig.morningClose} • PM ${gymConfig.eveningOpen}–${gymConfig.eveningClose} IST",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFFE2E8F0)
+                            )
+                        }
                     }
                 }
             }
@@ -289,40 +311,24 @@ fun HomeDashboardScreen(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Button(
+                CyberpunkButton(
+                    text = "QR PASS & CHECK-IN",
+                    icon = Icons.Default.QrCode2,
+                    accentColor = CyberNeonGreen,
                     onClick = onOpenPassTab,
                     modifier = Modifier
                         .weight(1f)
-                        .height(48.dp)
                         .testTag("home_open_pass_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.QrCode2,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Text(
-                        text = "QR Pass & Check-In",
-                        modifier = Modifier.padding(start = 6.dp)
-                    )
-                }
-                OutlinedButton(
+                )
+                CyberpunkOutlinedButton(
+                    text = "AI CONCIERGE",
+                    icon = Icons.Default.AutoAwesome,
+                    accentColor = CyberCyan,
                     onClick = onOpenConcierge,
                     modifier = Modifier
                         .weight(1f)
-                        .height(48.dp)
                         .testTag("home_open_concierge_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.AutoAwesome,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Text(
-                        text = "AI Concierge",
-                        modifier = Modifier.padding(start = 6.dp)
-                    )
-                }
+                )
             }
 
             // Google Maps Photo Showcase (Battle Box Fight Club Dudhnoi)

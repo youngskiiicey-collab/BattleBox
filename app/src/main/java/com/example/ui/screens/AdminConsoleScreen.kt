@@ -50,6 +50,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import androidx.compose.foundation.clickable
 import com.example.data.model.AttendanceRecord
@@ -67,6 +69,7 @@ import com.example.data.model.UiState
 import com.example.data.model.UserProfile
 import com.example.security.DeviceFix
 import com.example.security.GeofenceUtils
+import com.example.ui.components.BattleBoxCrest
 import com.example.ui.components.FirebaseConsoleCard
 import com.example.ui.components.FirebaseConsoleLinks
 import com.example.ui.components.LiveOccupancyMonitorCard
@@ -75,6 +78,7 @@ import com.example.ui.components.MonthlyAttendanceExportCard
 import com.example.ui.components.PermanentWallQrCard
 import com.example.ui.components.QrScannerSheet
 import com.example.ui.components.SelfCheckInNotificationFeedCard
+import com.example.ui.components.WorkoutModeToggleBar
 import com.example.utils.MonthlyAttendanceSummary
 import com.example.utils.WallQrPosterPdfGenerator
 import kotlinx.coroutines.launch
@@ -100,6 +104,9 @@ fun AdminConsoleScreen(
     deviceFix: DeviceFix?,
     monthlyExportState: UiState<MonthlyAttendanceSummary>? = null,
     isBusy: Boolean,
+    streakDays: Int = 0,
+    bmiText: String? = null,
+    onToggleWorkoutMode: (Boolean) -> Unit = {},
     onOpenScannerTab: () -> Unit = {},
     onFrontDeskScan: (qrPayload: String, fix: DeviceFix?) -> Unit,
     onAdminCheckOut: (attendanceId: String, memberName: String) -> Unit,
@@ -145,12 +152,19 @@ fun AdminConsoleScreen(
             modifier = Modifier.widthIn(max = 800.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
+            WorkoutModeToggleBar(
+                isWorkoutMode = false,
+                streakDays = streakDays,
+                bmiText = bmiText,
+                onToggleWorkoutMode = onToggleWorkoutMode
+            )
+
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier.testTag("admin_home_dashboard")
             ) {
-                Icon(Icons.Default.AdminPanelSettings, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
+                BattleBoxCrest(size = 44.dp)
                 Column {
                     Text(text = "ADMIN HOME DASHBOARD", style = MaterialTheme.typography.headlineMedium)
                     Text(
@@ -628,7 +642,7 @@ private fun GymSettingsEditor(
                     onClick = {
                         onSave(
                             gymConfig.copy(
-                                gymName = gymName.ifBlank { "Battle Box" },
+                                gymName = gymName.ifBlank { "Battle Box : FFF" },
                                 mapsUrl = mapsUrl.ifBlank { gymConfig.mapsUrl },
                                 latitude = latStr.toDoubleOrNull() ?: gymConfig.latitude,
                                 longitude = lngStr.toDoubleOrNull() ?: gymConfig.longitude,
@@ -680,14 +694,29 @@ private fun EditUserAccessDialog(
     var status by remember(user.userId) { mutableStateOf(user.membershipStatus) }
     var assignedTrainerId by remember(user.userId) { mutableStateOf(user.assignedTrainerId) }
 
-    AlertDialog(
+    Dialog(
         onDismissRequest = onDismiss,
-        title = { Text("Manage ${user.displayName}") },
-        text = {
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            shape = MaterialTheme.shapes.large,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+                .widthIn(max = 520.dp)
+        ) {
             Column(
-                modifier = Modifier.verticalScroll(rememberScrollState()),
+                modifier = Modifier
+                    .padding(18.dp)
+                    .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
+                Text(
+                    text = "Manage ${user.displayName}",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
                 OutlinedTextField(
                     value = displayName,
                     onValueChange = { displayName = it },
@@ -744,29 +773,32 @@ private fun EditUserAccessDialog(
                         }
                     }
                 }
-            }
-        },
-        confirmButton = {
-            Button(onClick = {
-                onSave(
-                    role,
-                    planTier,
-                    status,
-                    assignedTrainerId,
-                    displayName.ifBlank { user.displayName },
-                    phone.trim().ifBlank { null },
-                    emergencyContact.trim().ifBlank { null }
-                )
-            }) {
-                Text("Save & Log")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = onDismiss) {
+                        Text("Cancel")
+                    }
+                    Button(
+                        onClick = {
+                            onSave(
+                                role,
+                                planTier,
+                                status,
+                                assignedTrainerId,
+                                displayName.ifBlank { user.displayName },
+                                phone.trim().ifBlank { null },
+                                emergencyContact.trim().ifBlank { null }
+                            )
+                        }
+                    ) {
+                        Text("Save & Log")
+                    }
+                }
             }
         }
-    )
+    }
 }
 
 @Composable

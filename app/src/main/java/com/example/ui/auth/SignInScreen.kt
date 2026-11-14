@@ -143,15 +143,15 @@ fun SignInScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    BattleBoxCrest(size = 58.dp)
+                    BattleBoxCrest(size = 62.dp)
                     Column {
                         Text(
-                            text = "BATTLE BOX",
+                            text = "BATTLE BOX : FFF",
                             style = MaterialTheme.typography.displayLarge,
                             color = MaterialTheme.colorScheme.onBackground
                         )
                         Text(
-                            text = "FIGHT CLUB • DUDHNOI",
+                            text = "FIGHT FOR FITNESS • DUDHNOI",
                             style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.secondary
                         )
@@ -159,7 +159,7 @@ fun SignInScreen(
                 }
 
                 Text(
-                    text = "Sign in with one tap using your Google account. Your Firestore role (Member, Trainer, or Admin) automatically routes you to your dedicated home dashboard.",
+                    text = "Sign in with one tap using your Google account. Your Firestore role (Member, Trainer, or Admin) automatically routes you to your dedicated dashboard.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

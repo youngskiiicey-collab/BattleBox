@@ -17,8 +17,8 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
@@ -46,7 +46,11 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.data.model.UiState
+import com.example.ui.theme.CyberCyan
+import com.example.ui.theme.CyberMagenta
+import com.example.ui.theme.CyberNeonGreen
 import com.example.utils.AttendanceCsvExporter
+import com.example.utils.MonthlyAttendancePdfGenerator
 import com.example.utils.MonthlyAttendanceSummary
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -68,6 +72,8 @@ fun MonthlyAttendanceExportCard(
     val recentMonths = remember { AttendanceCsvExporter.recentMonthOptions(count = 6) }
 
     var pendingCsvToSave by remember { mutableStateOf<String?>(null) }
+    var pendingPdfSummary by remember { mutableStateOf<MonthlyAttendanceSummary?>(null) }
+    var preferredFormat by remember { mutableStateOf("PDF") }
 
     val saveCsvLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("text/csv")
@@ -78,6 +84,18 @@ fun MonthlyAttendanceExportCard(
             AttendanceCsvExporter.writeCsvToUri(context, uri, content)
                 .onSuccess { onFeedback("Saved monthly attendance CSV to device storage.") }
                 .onFailure { err -> onFeedback(err.localizedMessage ?: "Failed to save CSV file.") }
+        }
+    }
+
+    val savePdfLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/pdf")
+    ) { uri ->
+        val summary = pendingPdfSummary
+        pendingPdfSummary = null
+        if (uri != null && summary != null) {
+            MonthlyAttendancePdfGenerator.writePdfToUri(context, uri, summary)
+                .onSuccess { onFeedback("Saved monthly attendance PDF to device storage.") }
+                .onFailure { err -> onFeedback(err.localizedMessage ?: "Failed to save PDF file.") }
         }
     }
 
@@ -103,16 +121,16 @@ fun MonthlyAttendanceExportCard(
                 Icon(
                     imageVector = Icons.Default.Download,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.secondary
+                    tint = CyberCyan
                 )
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Monthly Attendance CSV Export",
+                        text = "Monthly Attendance Export (PDF & CSV)",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "Query Firestore logs (Asia/Kolkata IST) and save or share a CSV spreadsheet",
+                        text = "Query Firestore logs (Asia/Kolkata IST) and download as A4 PDF report or CSV spreadsheet",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -186,18 +204,36 @@ fun MonthlyAttendanceExportCard(
                 }
             }
 
-            Button(
-                onClick = { onFetchMonthlyLogs(selectedYear, selectedMonth) },
-                enabled = !isBusy,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 48.dp)
-                    .testTag("admin_fetch_monthly_csv_button")
+            // Two primary fetch buttons: Export PDF & Export CSV
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(18.dp))
-                Text(
-                    text = "Export $monthLabel Logs (CSV)",
-                    modifier = Modifier.padding(start = 8.dp)
+                CyberpunkButton(
+                    text = "Export PDF",
+                    icon = Icons.Default.PictureAsPdf,
+                    accentColor = CyberMagenta,
+                    enabled = !isBusy,
+                    onClick = {
+                        preferredFormat = "PDF"
+                        onFetchMonthlyLogs(selectedYear, selectedMonth)
+                    },
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("admin_fetch_monthly_pdf_button")
+                )
+                CyberpunkButton(
+                    text = "Export CSV",
+                    icon = Icons.Default.CloudDownload,
+                    accentColor = CyberCyan,
+                    enabled = !isBusy,
+                    onClick = {
+                        preferredFormat = "CSV"
+                        onFetchMonthlyLogs(selectedYear, selectedMonth)
+                    },
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("admin_fetch_monthly_csv_button")
                 )
             }
 
@@ -205,7 +241,7 @@ fun MonthlyAttendanceExportCard(
                 is UiState.Loading -> {
                     LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                     Text(
-                        text = "Querying Firestore attendance collection...",
+                        text = "Querying Firestore attendance logs for $preferredFormat...",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -228,6 +264,10 @@ fun MonthlyAttendanceExportCard(
 
                 is UiState.Success -> {
                     val summary = exportState.data
+                    val pdfFileName = MonthlyAttendancePdfGenerator.suggestedPdfFileName(
+                        summary.year,
+                        summary.monthOneBased
+                    )
                     HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
 
                     Row(
@@ -255,9 +295,9 @@ fun MonthlyAttendanceExportCard(
                             verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             Text(
-                                text = "FILE: ${summary.fileName}",
+                                text = "READY ($preferredFormat): $pdfFileName / ${summary.fileName}",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.secondary,
+                                color = CyberNeonGreen,
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
@@ -269,23 +309,56 @@ fun MonthlyAttendanceExportCard(
                         }
                     }
 
+                    // PDF Download / Open / Share row
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Button(
+                        CyberpunkButton(
+                            text = "Download PDF",
+                            icon = Icons.Default.PictureAsPdf,
+                            accentColor = CyberMagenta,
+                            onClick = {
+                                pendingPdfSummary = summary
+                                savePdfLauncher.launch(pdfFileName)
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("admin_save_pdf_button")
+                        )
+                        CyberpunkOutlinedButton(
+                            text = "Open / Share PDF",
+                            icon = Icons.Default.Share,
+                            accentColor = CyberCyan,
+                            onClick = {
+                                MonthlyAttendancePdfGenerator.shareOrOpenPdf(context, summary)
+                                    .onFailure { err ->
+                                        onFeedback(err.localizedMessage ?: "Unable to open or share PDF.")
+                                    }
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("admin_share_pdf_button")
+                        )
+                    }
+
+                    // CSV Save / Share / Copy row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        CyberpunkOutlinedButton(
+                            text = "Save CSV",
+                            icon = Icons.Default.Download,
+                            accentColor = CyberNeonGreen,
                             onClick = {
                                 pendingCsvToSave = summary.csvContent
                                 saveCsvLauncher.launch(summary.fileName)
                             },
                             modifier = Modifier
                                 .weight(1f)
-                                .heightIn(min = 48.dp)
                                 .testTag("admin_save_csv_button")
-                        ) {
-                            Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Text("Save CSV", modifier = Modifier.padding(start = 6.dp))
-                        }
+                        )
 
                         OutlinedButton(
                             onClick = {
@@ -303,7 +376,7 @@ fun MonthlyAttendanceExportCard(
                                 .testTag("admin_share_csv_button")
                         ) {
                             Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Text("Share", modifier = Modifier.padding(start = 6.dp))
+                            Text("Share CSV", modifier = Modifier.padding(start = 6.dp))
                         }
 
                         OutlinedButton(

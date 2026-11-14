@@ -94,6 +94,7 @@ import com.example.security.GeofenceUtils
 import com.example.ui.components.LiveOccupancyMonitorCard
 import com.example.ui.theme.BattleGoldDark
 import com.example.ui.theme.BattleGreenDark
+import com.example.utils.BattleBoxSoundEngine
 import com.google.zxing.BinaryBitmap
 import com.google.zxing.PlanarYUVLuminanceSource
 import com.google.zxing.common.HybridBinarizer
@@ -198,6 +199,7 @@ fun QrAttendanceScannerScreen(
     fun submitScannedToken(rawPayload: String) {
         val cleaned = rawPayload.trim()
         if (cleaned.isEmpty() || isBusy) return
+        BattleBoxSoundEngine.play(BattleBoxSoundEngine.SoundType.QR_SCAN_LOCK)
         if (deviceFix != null) {
             onMemberQrScanned(cleaned, deviceFix)
         } else if (hasLocationPermission) {

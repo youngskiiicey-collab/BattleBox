@@ -119,11 +119,16 @@ class AttendanceCsvExporterTest {
 
         composeRule.onNodeWithTag("monthly_attendance_export_card").assertIsDisplayed()
         composeRule.onNodeWithTag("export_prev_month_button").performClick()
+        composeRule.onNodeWithTag("admin_fetch_monthly_pdf_button").assertIsDisplayed()
         composeRule.onNodeWithTag("admin_fetch_monthly_csv_button").performClick()
         assertTrue(fetchedYear > 0 && fetchedMonth in 1..12)
 
         composeRule.onNodeWithTag("export_csv_preview").assertIsDisplayed()
-        composeRule.onNodeWithText("FILE: battlebox_attendance_2026_10.csv").assertIsDisplayed()
+        composeRule.onNodeWithText(
+            "READY (CSV): battlebox_fff_attendance_2026_10.pdf / battlebox_attendance_2026_10.csv"
+        ).assertIsDisplayed()
+        composeRule.onNodeWithTag("admin_save_pdf_button").assertIsDisplayed()
+        composeRule.onNodeWithTag("admin_share_pdf_button").assertIsDisplayed()
         composeRule.onNodeWithTag("admin_save_csv_button").assertIsDisplayed()
         composeRule.onNodeWithTag("admin_share_csv_button").assertIsDisplayed()
         composeRule.onNodeWithTag("admin_copy_csv_button").performClick()

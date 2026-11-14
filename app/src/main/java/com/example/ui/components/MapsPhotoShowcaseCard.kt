@@ -3,6 +3,7 @@ package com.example.ui.components
 import android.content.Intent
 import android.net.Uri
 import androidx.annotation.DrawableRes
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -52,6 +53,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.R
+import com.example.ui.theme.CyberBorder
+import com.example.ui.theme.CyberCyan
 
 data class BattleBoxPhotoItem(
     val id: String,
@@ -61,20 +64,62 @@ data class BattleBoxPhotoItem(
     val badge: String
 )
 
-private val battleBoxMapsPhotos = listOf(
+val battleBoxClubGalleryPhotos = listOf(
+    BattleBoxPhotoItem(
+        id = "dudhnoi_exterior_sign",
+        drawableRes = R.drawable.img_fff_exterior_sign_1794638873184,
+        title = "Battle Box : FFF Facade",
+        subtitle = "Fight For Fitness signage • Dudhnoi, Assam 783124",
+        badge = "EXTERIOR"
+    ),
     BattleBoxPhotoItem(
         id = "dudhnoi_crest_wall",
         drawableRes = R.drawable.img_maps_battlebox_wall,
         title = "Winged Crest & Brick Mural",
-        subtitle = "Battle Box Fight Club • XQPM+99H, Dudhnoi, Assam 783124",
-        badge = "GOOGLE MAPS PHOTO"
+        subtitle = "Battle Box For Fitness mural • XQPM+99H, Dudhnoi",
+        badge = "WALL MURAL"
+    ),
+    BattleBoxPhotoItem(
+        id = "dudhnoi_dumbbell_rack",
+        drawableRes = R.drawable.img_fff_dumbbell_rack_1794638872867,
+        title = "Jerai Dumbbell & Free Weights",
+        subtitle = "Jerai Round Rubber Dumbbells (2.5kg–40kg) & EZ/Olympic bars",
+        badge = "FREE WEIGHTS"
+    ),
+    BattleBoxPhotoItem(
+        id = "dudhnoi_smith_rack",
+        drawableRes = R.drawable.img_fff_smith_rack_1794638874023,
+        title = "Jerai Smith Rack & Cable Tower",
+        subtitle = "Smith machine w/ 5kg–25kg bumper plates & Dual Cable Crossover",
+        badge = "RACKS & CABLES"
+    ),
+    BattleBoxPhotoItem(
+        id = "dudhnoi_leg_press_floor",
+        drawableRes = R.drawable.img_fff_leg_press_floor_1794638874436,
+        title = "45° Leg Press & Selectorized Line",
+        subtitle = "Jerai plate-loaded 45° leg press, extension/curl & press stations",
+        badge = "STRENGTH FLOOR"
+    ),
+    BattleBoxPhotoItem(
+        id = "dudhnoi_neon_mirror_zone",
+        drawableRes = R.drawable.img_fff_neon_mirror_zone_1794638874891,
+        title = "Neon Wall & Reception Lounge",
+        subtitle = "Certified trainer wall, digital HUD clock & recovery seating",
+        badge = "CLUB LOUNGE"
+    ),
+    BattleBoxPhotoItem(
+        id = "dudhnoi_treadmill_lounge",
+        drawableRes = R.drawable.img_fff_treadmill_lounge_1794638875424,
+        title = "Aerofit Commercial Cardio Zone",
+        subtitle = "Commercial incline treadmills, cycle bay & open functional turf",
+        badge = "CARDIO & TURF"
     ),
     BattleBoxPhotoItem(
         id = "dudhnoi_training_floor",
         drawableRes = R.drawable.img_hero_gym,
-        title = "Combat & Strength Zone",
-        subtitle = "Heavy bags, squat racks, conditioning & functional training mats",
-        badge = "FACILITY FLOOR"
+        title = "Combat & Turf Conditioning",
+        subtitle = "Warm-up sprints, sled/agility lane & HIIT conditioning deck",
+        badge = "CONDITIONING"
     )
 )
 
@@ -89,6 +134,7 @@ fun MapsPhotoShowcaseCard(
 
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, CyberBorder.copy(alpha = 0.7f)),
         shape = MaterialTheme.shapes.large,
         modifier = modifier
             .fillMaxWidth()
@@ -111,15 +157,16 @@ fun MapsPhotoShowcaseCard(
                     Icon(
                         imageVector = Icons.Default.PhotoLibrary,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.secondary
+                        tint = CyberCyan
                     )
                     Column {
                         Text(
-                            text = if (compactHeader) "DUDHNOI CLUB GALLERY" else "BATTLE BOX DUDHNOI SHOWCASE",
-                            style = MaterialTheme.typography.titleMedium
+                            text = if (compactHeader) "DUDHNOI FFF CLUB GALLERY" else "DUDHNOI FFF CLUB GALLERY (${battleBoxClubGalleryPhotos.size} PHOTOS)",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "From Google Maps • Tap a photo to inspect",
+                            text = "Battle Box : FFF • Google Maps verified gallery",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -131,7 +178,7 @@ fun MapsPhotoShowcaseCard(
                     },
                     modifier = Modifier.testTag("open_maps_photos_button")
                 ) {
-                    Text("Maps Photos", style = MaterialTheme.typography.labelMedium)
+                    Text("Google Maps", style = MaterialTheme.typography.labelMedium)
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.OpenInNew,
                         contentDescription = "Open Google Maps photos",
@@ -146,7 +193,7 @@ fun MapsPhotoShowcaseCard(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 contentPadding = PaddingValues(end = 4.dp)
             ) {
-                items(battleBoxMapsPhotos, key = { it.id }) { photo ->
+                items(battleBoxClubGalleryPhotos, key = { it.id }) { photo ->
                     Box(
                         modifier = Modifier
                             .width(248.dp)
@@ -166,12 +213,13 @@ fun MapsPhotoShowcaseCard(
                                 .fillMaxSize()
                                 .background(
                                     Brush.verticalGradient(
-                                        colors = listOf(Color(0x220E1114), Color(0xE00E1114))
+                                        colors = listOf(Color(0x220E1114), Color(0xE8080C10))
                                     )
                                 )
                         )
                         Surface(
-                            color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.9f),
+                            color = Color(0xD80A1219),
+                            border = BorderStroke(1.dp, CyberCyan.copy(alpha = 0.65f)),
                             shape = RoundedCornerShape(6.dp),
                             modifier = Modifier
                                 .align(Alignment.TopStart)
@@ -180,7 +228,7 @@ fun MapsPhotoShowcaseCard(
                             Text(
                                 text = photo.badge,
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                color = CyberCyan,
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                             )
                         }
@@ -216,6 +264,7 @@ fun MapsPhotoShowcaseCard(
         ) {
             Surface(
                 color = Color(0xFF0E1114),
+                border = BorderStroke(1.dp, CyberCyan.copy(alpha = 0.55f)),
                 shape = RoundedCornerShape(20.dp),
                 modifier = Modifier
                     .fillMaxWidth()
@@ -225,7 +274,7 @@ fun MapsPhotoShowcaseCard(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(380.dp)
+                            .height(360.dp)
                     ) {
                         Image(
                             painter = painterResource(id = item.drawableRes),
@@ -275,7 +324,7 @@ fun MapsPhotoShowcaseCard(
                                 modifier = Modifier.size(18.dp)
                             )
                             Text(
-                                text = "Open on Google Maps Page",
+                                text = "Open Dudhnoi Google Maps Page",
                                 modifier = Modifier.padding(start = 6.dp)
                             )
                         }

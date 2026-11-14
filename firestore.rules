@@ -632,5 +632,74 @@ service cloud.firestore {
                                isValidBillingConfig(incoming());
       allow delete: if false;
     }
+
+    // 17. Personal Workout Summary Profiles (Owner-isolated; Trainers/Admin can read)
+    function isValidWorkoutProfile(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.heightCm is number && data.heightCm >= 100 && data.heightCm <= 240 &&
+             data.weightKg is number && data.weightKg >= 25 && data.weightKg <= 250 &&
+             data.calorieTarget is int && data.calorieTarget >= 800 && data.calorieTarget <= 8000 &&
+             data.activeMinutesTarget is int && data.activeMinutesTarget >= 10 && data.activeMinutesTarget <= 300 &&
+             data.proteinTargetG is int && data.proteinTargetG >= 20 && data.proteinTargetG <= 400 &&
+             data.caloriesToday is int && data.caloriesToday >= 0 && data.caloriesToday <= 10000 &&
+             data.activeMinutesToday is int && data.activeMinutesToday >= 0 && data.activeMinutesToday <= 600 &&
+             data.proteinTodayG is int && data.proteinTodayG >= 0 && data.proteinTodayG <= 500 &&
+             data.streakDays is int && data.streakDays >= 0 && data.streakDays <= 10000 &&
+             data.lastWorkoutDateIso is string && data.lastWorkoutDateIso.size() <= 32 &&
+             data.personalRecords is list && data.personalRecords.size() <= 15 &&
+             data.weightHistory is list && data.weightHistory.size() <= 12 &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    match /workout_profiles/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isStaff());
+      allow list: if isStaff();
+      allow create, update: if isValidId(userId) &&
+                               isOwner(userId) &&
+                               incoming().userId == request.auth.uid &&
+                               incoming().keys().hasAll([
+                                 'userId', 'heightCm', 'weightKg', 'calorieTarget', 'activeMinutesTarget',
+                                 'proteinTargetG', 'caloriesToday', 'activeMinutesToday', 'proteinTodayG',
+                                 'streakDays', 'lastWorkoutDateIso', 'personalRecords', 'weightHistory', 'updatedAt'
+                               ]) &&
+                               incoming().keys().hasOnly([
+                                 'userId', 'heightCm', 'weightKg', 'calorieTarget', 'activeMinutesTarget',
+                                 'proteinTargetG', 'caloriesToday', 'activeMinutesToday', 'proteinTodayG',
+                                 'streakDays', 'lastWorkoutDateIso', 'personalRecords', 'weightHistory', 'updatedAt'
+                               ]) &&
+                               isValidWorkoutProfile(incoming());
+      allow delete: if false;
+    }
+
+    // 18. Completed Workout Logs (Append-only by owner; readable by owner or staff)
+    function isValidWorkoutLog(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.workoutTitle is string && data.workoutTitle.size() >= 1 && data.workoutTitle.size() <= 80 &&
+             data.durationSeconds is int && data.durationSeconds >= 0 && data.durationSeconds <= 86400 &&
+             data.totalVolumeKg is number && data.totalVolumeKg >= 0 && data.totalVolumeKg <= 250000 &&
+             data.caloriesBurned is int && data.caloriesBurned >= 0 && data.caloriesBurned <= 5000 &&
+             data.completedSets is int && data.completedSets >= 0 && data.completedSets <= 200 &&
+             data.exercisesCompleted is int && data.exercisesCompleted >= 0 && data.exercisesCompleted <= 50 &&
+             data.prAchievedLabel is string && data.prAchievedLabel.size() <= 120 &&
+             data.createdAt is timestamp && data.createdAt <= request.time;
+    }
+
+    match /workout_logs/{logId} {
+      allow get: if isValidId(logId) && (isStaff() || (isSignedIn() && existing().userId == request.auth.uid));
+      allow list: if isStaff() || (isSignedIn() && existing().userId == request.auth.uid);
+      allow create: if isValidId(logId) &&
+                       isSignedIn() &&
+                       incoming().userId == request.auth.uid &&
+                       incoming().keys().hasAll([
+                         'userId', 'workoutTitle', 'durationSeconds', 'totalVolumeKg',
+                         'caloriesBurned', 'completedSets', 'exercisesCompleted', 'prAchievedLabel', 'createdAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'workoutTitle', 'durationSeconds', 'totalVolumeKg',
+                         'caloriesBurned', 'completedSets', 'exercisesCompleted', 'prAchievedLabel', 'createdAt'
+                       ]) &&
+                       isValidWorkoutLog(incoming());
+      allow update, delete: if false;
+    }
   }
 }

@@ -28,17 +28,17 @@ object BattleBoxNotificationHelper {
             }
             val billingChannel = NotificationChannel(
                 CHANNEL_BILLING,
-                "Billing & Pre-Debit Reminders",
-                NotificationManager.IMPORTANCE_DEFAULT
+                "Billing & Membership Renewal Alerts",
+                NotificationManager.IMPORTANCE_HIGH
             ).apply {
                 description = "UPI AutoPay 24h pre-debit notices, plan expiry alerts, and payment updates."
             }
             val selfCheckInChannel = NotificationChannel(
                 CHANNEL_SELF_CHECKIN,
-                "Wall QR Self Check-In Alerts",
+                "Wall QR Check-In & Geofence Alerts",
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Instant alerts for Trainers and Admin when members self check-in via Battle Box Wall QR."
+                description = "Instant alerts for Trainers and Admin when members self check-in via Battle Box : FFF Wall QR or auto check-out outside geofence."
             }
             manager.createNotificationChannel(announcementsChannel)
             manager.createNotificationChannel(billingChannel)
@@ -89,7 +89,7 @@ object BattleBoxNotificationHelper {
             .setContentTitle(title)
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .build()
         NotificationManagerCompat.from(context).notify(idSeed.hashCode(), notification)
@@ -106,12 +106,30 @@ object BattleBoxNotificationHelper {
         val body = "$memberName checked in via Wall QR (${distanceMeters.toInt()}m GPS geofence verified)."
         val notification = NotificationCompat.Builder(context, CHANNEL_SELF_CHECKIN)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle("Battle Box Wall QR Check-In")
+            .setContentTitle("Battle Box : FFF Wall QR Check-In")
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .build()
         NotificationManagerCompat.from(context).notify(("checkin_$attendanceId").hashCode(), notification)
+    }
+
+    fun showGeofenceAutoOutNotification(
+        context: Context,
+        attendanceId: String,
+        reason: String
+    ) {
+        if (!hasNotificationPermission(context)) return
+        ensureChannels(context)
+        val notification = NotificationCompat.Builder(context, CHANNEL_SELF_CHECKIN)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle("Auto Checked-Out • Geofence")
+            .setContentText(reason)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(reason))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .build()
+        NotificationManagerCompat.from(context).notify(("autoout_$attendanceId").hashCode(), notification)
     }
 }

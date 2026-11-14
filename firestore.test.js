@@ -556,4 +556,54 @@ test("Admin editable plans, pending pay, subscriptions & Phase 3 billing config 
   await assertFails(aliceDb.collection("billing_config").get());
 });
 
+test("Workout Profiles & Workout Logs: owner-isolated read/write and immutable logs", async () => {
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const bobDb = testEnv.authenticatedContext(BOB_UID).firestore();
+  const now = new Date(Date.now() - 500);
+
+  const validProfile = {
+    userId: ALICE_UID,
+    heightCm: 175,
+    weightKg: 74,
+    calorieTarget: 2400,
+    activeMinutesTarget: 60,
+    proteinTargetG: 140,
+    caloriesToday: 600,
+    activeMinutesToday: 30,
+    proteinTodayG: 50,
+    streakDays: 4,
+    lastWorkoutDateIso: "2026-11-14",
+    personalRecords: [],
+    weightHistory: [],
+    updatedAt: now,
+  };
+
+  await assertSucceeds(aliceDb.collection("workout_profiles").doc(ALICE_UID).set(validProfile));
+  await assertFails(bobDb.collection("workout_profiles").doc(ALICE_UID).get());
+  await assertFails(bobDb.collection("workout_profiles").doc(ALICE_UID).set(validProfile));
+  await assertFails(
+    aliceDb.collection("workout_profiles").doc(ALICE_UID).set({ ...validProfile, heightCm: 20 })
+  );
+
+  const validLog = {
+    userId: ALICE_UID,
+    workoutTitle: "Full Gym Push & Pull",
+    durationSeconds: 1800,
+    totalVolumeKg: 4250,
+    caloriesBurned: 380,
+    completedSets: 12,
+    exercisesCompleted: 4,
+    prAchievedLabel: "Smith Flat Bench Press: 60kg x 10",
+    createdAt: now,
+  };
+
+  await assertSucceeds(aliceDb.collection("workout_logs").doc("wlog_1").set(validLog));
+  await assertFails(bobDb.collection("workout_logs").doc("wlog_1").get());
+  await assertFails(bobDb.collection("workout_logs").where("userId", "==", ALICE_UID).get());
+  await assertSucceeds(aliceDb.collection("workout_logs").where("userId", "==", ALICE_UID).get());
+  await assertFails(aliceDb.collection("workout_logs").doc("wlog_1").update({ totalVolumeKg: 9999 }));
+  await assertFails(aliceDb.collection("workout_logs").doc("wlog_1").delete());
+});
+
+
 

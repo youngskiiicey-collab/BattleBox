@@ -39,9 +39,15 @@ import com.example.data.model.GymConfig
 import com.example.data.model.GymPublicStatus
 import com.example.data.model.UserProfile
 import com.example.security.GeofenceUtils
+import com.example.ui.components.BattleBoxCrest
+import com.example.ui.components.CyberpunkButton
+import com.example.ui.components.CyberpunkOutlinedButton
 import com.example.ui.components.LiveOccupancyMonitorCard
 import com.example.ui.components.MapsPhotoShowcaseCard
 import com.example.ui.components.SelfCheckInNotificationFeedCard
+import com.example.ui.components.WorkoutModeToggleBar
+import com.example.ui.theme.CyberCyan
+import com.example.ui.theme.CyberNeonGreen
 
 @Composable
 fun TrainerRosterScreen(
@@ -52,6 +58,9 @@ fun TrainerRosterScreen(
     gymPublicStatus: GymPublicStatus = GymPublicStatus(),
     announcements: List<GymAnnouncement> = emptyList(),
     isBusy: Boolean = false,
+    streakDays: Int = 0,
+    bmiText: String? = null,
+    onToggleWorkoutMode: (Boolean) -> Unit = {},
     onOpenScannerTab: () -> Unit = {},
     onOpenPassTab: () -> Unit = {},
     onCheckOutSession: (attendanceId: String, memberName: String) -> Unit = { _, _ -> },
@@ -71,6 +80,13 @@ fun TrainerRosterScreen(
             modifier = Modifier.widthIn(max = 720.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            WorkoutModeToggleBar(
+                isWorkoutMode = false,
+                streakDays = streakDays,
+                bmiText = bmiText,
+                onToggleWorkoutMode = onToggleWorkoutMode
+            )
+
             // Trainer Home Dashboard Header
             Card(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -88,28 +104,35 @@ fun TrainerRosterScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Surface(
-                                color = MaterialTheme.colorScheme.secondaryContainer,
-                                shape = MaterialTheme.shapes.small
-                            ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            BattleBoxCrest(size = 46.dp)
+                            Column {
+                                Surface(
+                                    color = MaterialTheme.colorScheme.secondaryContainer,
+                                    shape = MaterialTheme.shapes.small
+                                ) {
+                                    Text(
+                                        text = "TRAINER COMMAND DASHBOARD",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(6.dp))
                                 Text(
-                                    text = "TRAINER COMMAND DASHBOARD",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    text = "Coach ${currentUser.displayName}",
+                                    style = MaterialTheme.typography.headlineMedium
+                                )
+                                Text(
+                                    text = "${gymConfig.gymName} • $openLabel",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary
                                 )
                             }
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text(
-                                text = "Coach ${currentUser.displayName}",
-                                style = MaterialTheme.typography.headlineMedium
-                            )
-                            Text(
-                                text = "${gymConfig.gymName} • $openLabel",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.primary
-                            )
                         }
                         Surface(
                             color = MaterialTheme.colorScheme.primaryContainer,
@@ -139,27 +162,25 @@ fun TrainerRosterScreen(
                         }
                     }
 
-                    Button(
+                    CyberpunkButton(
+                        text = "OPEN CAMERAX QR SCANNER",
+                        icon = Icons.Default.QrCodeScanner,
+                        accentColor = CyberNeonGreen,
                         onClick = onOpenScannerTab,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(48.dp)
                             .testTag("trainer_open_scanner_button")
-                    ) {
-                        Icon(Icons.Default.QrCodeScanner, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Text("Open CameraX QR Attendance Scanner", modifier = Modifier.padding(start = 8.dp))
-                    }
+                    )
 
-                    OutlinedButton(
+                    CyberpunkOutlinedButton(
+                        text = "MY COACH QR PASS / SELF CHECK-IN",
+                        icon = Icons.Default.QrCode2,
+                        accentColor = CyberCyan,
                         onClick = onOpenPassTab,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(48.dp)
                             .testTag("trainer_checkin_pass_button")
-                    ) {
-                        Icon(Icons.Default.QrCode2, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Text("My Coach QR Pass / Self Check-In", modifier = Modifier.padding(start = 8.dp))
-                    }
+                    )
                 }
             }
 

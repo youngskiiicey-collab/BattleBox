@@ -1,6 +1,8 @@
 package com.example.ui.viewmodel
 
+import android.content.Context
 import android.util.Log
+import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.ai.BattleBoxConciergeRepository
@@ -17,14 +19,25 @@ import com.example.data.model.NotificationDeliveryLog
 import com.example.data.model.NotificationPreference
 import com.example.data.model.PaymentRecord
 import com.example.data.model.PaymentRequest
+import com.example.data.model.PersonalRecordEntry
 import com.example.data.model.Phase3BillingConfig
 import com.example.data.model.UiState
 import com.example.data.model.UserProfile
+import com.example.data.model.WorkoutLog
+import com.example.data.model.WorkoutProfile
 import com.example.data.repository.BattleBoxRepository
 import com.example.data.repository.CheckInOutcome
 import com.example.data.repository.Phase2Repository
+import com.example.data.repository.WorkoutRepository
 import com.example.security.DeviceFix
+import com.example.ui.components.CyberHudAlert
+import com.example.ui.theme.CyberAmber
+import com.example.ui.theme.CyberCyan
+import com.example.ui.theme.CyberMagenta
+import com.example.ui.theme.CyberNeonGreen
 import com.example.utils.AttendanceCsvExporter
+import com.example.utils.BattleBoxNotificationHelper
+import com.example.utils.BattleBoxSoundEngine
 import com.example.utils.MonthlyAttendanceSummary
 import com.google.firebase.firestore.FirebaseFirestoreException
 import kotlinx.coroutines.CancellationException
@@ -53,6 +66,7 @@ class BattleBoxViewModel(
     private val repository: BattleBoxRepository,
     private val phase2Repository: Phase2Repository,
     private val conciergeRepository: BattleBoxConciergeRepository,
+    private val workoutRepository: WorkoutRepository,
     val currentUserId: String,
     val currentUserEmail: String,
     val currentUserDisplayName: String,
@@ -341,6 +355,40 @@ class BattleBoxViewModel(
             }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), emptyList())
 
+    val workoutProfile: StateFlow<WorkoutProfile> =
+        workoutRepository.observeWorkoutProfile(currentUserId)
+            .catch { error ->
+                if (unwrapFirestore(error) == null && error is CancellationException) throw error
+                Log.w(TAG, "Error observing workout profile", error)
+                emit(WorkoutProfile(id = currentUserId, userId = currentUserId))
+            }
+            .stateIn(
+                scope = viewModelScope,
+                started = SharingStarted.WhileSubscribed(5000L),
+                initialValue = WorkoutProfile(id = currentUserId, userId = currentUserId)
+            )
+
+    val workoutLogs: StateFlow<List<WorkoutLog>> =
+        workoutRepository.observeMyWorkoutLogs(currentUserId)
+            .catch { error ->
+                if (unwrapFirestore(error) == null && error is CancellationException) throw error
+                Log.w(TAG, "Error observing workout logs", error)
+                emit(emptyList())
+            }
+            .stateIn(
+                scope = viewModelScope,
+                started = SharingStarted.WhileSubscribed(5000L),
+                initialValue = emptyList()
+            )
+
+    private val _isWorkoutMode = MutableStateFlow(false)
+    val isWorkoutMode: StateFlow<Boolean> = _isWorkoutMode.asStateFlow()
+
+    private val _hudAlert = MutableStateFlow<CyberHudAlert?>(null)
+    val hudAlert: StateFlow<CyberHudAlert?> = _hudAlert.asStateFlow()
+
+    val isSoundMuted: StateFlow<Boolean> = BattleBoxSoundEngine.isMuted
+
     private val _actionBanner = MutableStateFlow<String?>(null)
     val actionBanner: StateFlow<String?> = _actionBanner.asStateFlow()
 
@@ -361,7 +409,7 @@ class BattleBoxViewModel(
             ConciergeMessage(
                 id = "welcome",
                 isUser = false,
-                text = "Welcome to Battle Box. Ask me about IST gym timings, directions, 30s rotating QR check-in, geofencing, or our draft DPDP Act 2023 privacy terms."
+                text = "Welcome to Battle Box : FFF (Fight For Fitness). Ask me about IST gym timings, directions, 30s rotating QR check-in, geofencing, Jerai/Aerofit stations, or our draft DPDP Act 2023 privacy terms."
             )
         )
     )
@@ -372,6 +420,42 @@ class BattleBoxViewModel(
 
     fun toggleDarkTheme() {
         _isDarkTheme.value = !_isDarkTheme.value
+    }
+
+    fun toggleWorkoutMode(enabled: Boolean? = null) {
+        val next = enabled ?: !_isWorkoutMode.value
+        _isWorkoutMode.value = next
+        if (next) {
+            BattleBoxSoundEngine.play(BattleBoxSoundEngine.SoundType.QR_SCAN_LOCK)
+        }
+    }
+
+    fun toggleSoundMute() {
+        val muted = BattleBoxSoundEngine.toggleMute()
+        _actionBanner.value = if (muted) "Cyberpunk HUD sounds muted." else "Cyberpunk HUD sounds active."
+    }
+
+    fun emitHudAlert(
+        badge: String,
+        title: String,
+        message: String,
+        accentColor: Color = CyberCyan,
+        sound: BattleBoxSoundEngine.SoundType? = null
+    ) {
+        _hudAlert.value = CyberHudAlert(
+            id = "hud_${System.currentTimeMillis()}",
+            title = title,
+            message = message,
+            badge = badge,
+            accentColor = accentColor
+        )
+        if (sound != null) {
+            BattleBoxSoundEngine.play(sound)
+        }
+    }
+
+    fun dismissHudAlert() {
+        _hudAlert.value = null
     }
 
     fun dismissBanner() {
@@ -407,6 +491,13 @@ class BattleBoxViewModel(
                 _actionBanner.value = err.localizedMessage ?: "Failed to save onboarding consent."
             }.onSuccess {
                 _actionBanner.value = "Onboarding & DPDP consent saved."
+                emitHudAlert(
+                    badge = "ONLINE",
+                    title = "Battle Box : FFF Activated",
+                    message = "Athlete profile synced. Ready for Workout Mode & QR pass.",
+                    accentColor = CyberNeonGreen,
+                    sound = BattleBoxSoundEngine.SoundType.PASS_CHECK_IN
+                )
             }
         }
     }
@@ -425,10 +516,27 @@ class BattleBoxViewModel(
                 deviceFix = deviceFix
             )
             _isBusy.value = false
-            _actionBanner.value = when (outcome) {
-                is CheckInOutcome.CheckedIn ->
-                    "Checked in (${outcome.distanceMeters.toInt()} m from Battle Box, ±${outcome.accuracyMeters.toInt()} m GPS). Auto-checkout in ${gymConfig.value.autoCheckoutHours}h."
-                is CheckInOutcome.Rejected -> "Check-in rejected: ${outcome.reason}"
+            when (outcome) {
+                is CheckInOutcome.CheckedIn -> {
+                    val msg = "Checked in (${outcome.distanceMeters.toInt()} m from Battle Box : FFF, ±${outcome.accuracyMeters.toInt()} m GPS). Auto-checkout in ${gymConfig.value.autoCheckoutHours}h."
+                    _actionBanner.value = msg
+                    emitHudAlert(
+                        badge = "PASS IN",
+                        title = "Wall QR Verified",
+                        message = msg,
+                        accentColor = CyberNeonGreen,
+                        sound = BattleBoxSoundEngine.SoundType.PASS_CHECK_IN
+                    )
+                }
+                is CheckInOutcome.Rejected -> {
+                    _actionBanner.value = "Check-in rejected: ${outcome.reason}"
+                    emitHudAlert(
+                        badge = "DENIED",
+                        title = "Check-In Blocked",
+                        message = outcome.reason,
+                        accentColor = CyberMagenta
+                    )
+                }
             }
         }
     }
@@ -446,10 +554,27 @@ class BattleBoxViewModel(
             )
             _isBusy.value = false
             _lastScanOutcome.value = outcome
-            _actionBanner.value = when (outcome) {
-                is CheckInOutcome.CheckedIn ->
-                    "Front Desk verified ${outcome.memberName} (${outcome.distanceMeters.toInt()} m)."
-                is CheckInOutcome.Rejected -> "Front Desk rejected scan: ${outcome.reason}"
+            when (outcome) {
+                is CheckInOutcome.CheckedIn -> {
+                    val msg = "Front Desk verified ${outcome.memberName} (${outcome.distanceMeters.toInt()} m)."
+                    _actionBanner.value = msg
+                    emitHudAlert(
+                        badge = "DESK PASS",
+                        title = "${outcome.memberName} Checked In",
+                        message = msg,
+                        accentColor = CyberNeonGreen,
+                        sound = BattleBoxSoundEngine.SoundType.PASS_CHECK_IN
+                    )
+                }
+                is CheckInOutcome.Rejected -> {
+                    _actionBanner.value = "Front Desk rejected scan: ${outcome.reason}"
+                    emitHudAlert(
+                        badge = "SCAN REJECT",
+                        title = "QR Verification Failed",
+                        message = outcome.reason,
+                        accentColor = CyberMagenta
+                    )
+                }
             }
         }
     }
@@ -467,10 +592,27 @@ class BattleBoxViewModel(
             )
             _isBusy.value = false
             _lastScanOutcome.value = outcome
-            _actionBanner.value = when (outcome) {
-                is CheckInOutcome.CheckedIn ->
-                    "Attendance marked for ${outcome.memberName} (${outcome.distanceMeters.toInt()} m)."
-                is CheckInOutcome.Rejected -> "QR scan rejected: ${outcome.reason}"
+            when (outcome) {
+                is CheckInOutcome.CheckedIn -> {
+                    val msg = "Attendance marked for ${outcome.memberName} (${outcome.distanceMeters.toInt()} m)."
+                    _actionBanner.value = msg
+                    emitHudAlert(
+                        badge = "QR PASS",
+                        title = "${outcome.memberName} Verified",
+                        message = msg,
+                        accentColor = CyberNeonGreen,
+                        sound = BattleBoxSoundEngine.SoundType.PASS_CHECK_IN
+                    )
+                }
+                is CheckInOutcome.Rejected -> {
+                    _actionBanner.value = "QR scan rejected: ${outcome.reason}"
+                    emitHudAlert(
+                        badge = "SCAN REJECT",
+                        title = "QR Scan Rejected",
+                        message = outcome.reason,
+                        accentColor = CyberMagenta
+                    )
+                }
             }
         }
     }
@@ -483,7 +625,132 @@ class BattleBoxViewModel(
             res.onFailure {
                 _actionBanner.value = it.localizedMessage ?: "Check-out failed."
             }.onSuccess {
-                _actionBanner.value = if (isAdminAction) "Checked out $memberName." else "Checked out. Great session!"
+                val msg = if (isAdminAction) "Checked out $memberName." else "Checked out. Great Battle Box : FFF session!"
+                _actionBanner.value = msg
+                emitHudAlert(
+                    badge = "CHECK-OUT",
+                    title = if (isAdminAction) "Staff Checkout" else "Session Ended",
+                    message = msg,
+                    accentColor = CyberAmber,
+                    sound = BattleBoxSoundEngine.SoundType.CHECK_OUT
+                )
+            }
+        }
+    }
+
+    fun checkGeofenceAutoOut(
+        context: Context,
+        activeSession: AttendanceRecord,
+        deviceFix: DeviceFix
+    ) {
+        viewModelScope.launch {
+            val res = repository.autoCheckOutIfOutsideGeofence(activeSession, deviceFix, gymConfig.value)
+            res.onSuccess { check ->
+                if (!check.isInsideGeofence) {
+                    val reason = check.violationReason
+                        ?: "Auto checked-out: outside ${gymConfig.value.geofenceRadiusM.toInt()}m geofence."
+                    BattleBoxNotificationHelper.showGeofenceAutoOutNotification(
+                        context = context,
+                        attendanceId = activeSession.id,
+                        reason = reason
+                    )
+                    emitHudAlert(
+                        badge = "AUTO-OUT",
+                        title = "Geofence Auto Check-Out",
+                        message = reason,
+                        accentColor = CyberMagenta,
+                        sound = BattleBoxSoundEngine.SoundType.CHECK_OUT
+                    )
+                    _actionBanner.value = reason
+                }
+            }
+        }
+    }
+
+    fun logQuickMacros(addKcal: Int, addProteinG: Int, addActiveMin: Int) {
+        viewModelScope.launch {
+            _isBusy.value = true
+            val res = workoutRepository.recordQuickMacroEntry(
+                current = workoutProfile.value,
+                addCalories = addKcal,
+                addProteinG = addProteinG,
+                addActiveMinutes = addActiveMin
+            )
+            _isBusy.value = false
+            res.onSuccess {
+                _actionBanner.value = "Logged +$addKcal kcal / +${addProteinG}g protein / +${addActiveMin}m active."
+                emitHudAlert(
+                    badge = "MACRO SYNC",
+                    title = "Readiness Updated",
+                    message = "+$addKcal kcal • +${addProteinG}g protein synced to Firestore.",
+                    accentColor = CyberCyan,
+                    sound = BattleBoxSoundEngine.SoundType.QR_SCAN_LOCK
+                )
+            }.onFailure { err ->
+                _actionBanner.value = err.localizedMessage ?: "Failed to save quick macro log."
+            }
+        }
+    }
+
+    fun updateBodyMetrics(weightKg: Double, heightCm: Double) {
+        viewModelScope.launch {
+            _isBusy.value = true
+            val res = workoutRepository.updateBodyMetrics(
+                current = workoutProfile.value,
+                newWeightKg = weightKg,
+                newHeightCm = heightCm
+            )
+            _isBusy.value = false
+            res.onSuccess { updated ->
+                val bmiText = "BMI ${WorkoutProfile.formatBmi(updated.bmiRatio)} (${updated.bmiLabel})"
+                _actionBanner.value = "Body metrics saved: $bmiText"
+                emitHudAlert(
+                    badge = "BMI TELEMETRY",
+                    title = bmiText,
+                    message = "${updated.weightKg.toInt()} kg • ${updated.heightCm.toInt()} cm recorded.",
+                    accentColor = CyberNeonGreen,
+                    sound = BattleBoxSoundEngine.SoundType.QR_SCAN_LOCK
+                )
+            }.onFailure { err ->
+                _actionBanner.value = err.localizedMessage ?: "Failed to save BMI body metrics."
+            }
+        }
+    }
+
+    fun completeWorkoutSession(
+        workoutTitle: String,
+        durationSeconds: Long,
+        totalVolumeKg: Double,
+        completedSets: Int,
+        exercisesCompleted: Int,
+        updatedPrs: List<PersonalRecordEntry>,
+        prLabel: String
+    ) {
+        viewModelScope.launch {
+            _isBusy.value = true
+            val res = workoutRepository.completeAndSaveWorkoutSession(
+                currentProfile = workoutProfile.value,
+                workoutTitle = workoutTitle,
+                durationSeconds = durationSeconds,
+                totalVolumeKg = totalVolumeKg,
+                completedSets = completedSets,
+                exercisesCompleted = exercisesCompleted,
+                updatedPrs = updatedPrs,
+                prAchievedLabel = prLabel
+            )
+            _isBusy.value = false
+            res.onSuccess {
+                val msg = "Completed $workoutTitle • ${totalVolumeKg.toInt()} kg volume • $completedSets sets."
+                _actionBanner.value = msg
+                emitHudAlert(
+                    badge = "SESSION LOGGED",
+                    title = "Streak & Volume Saved",
+                    message = msg,
+                    accentColor = CyberNeonGreen,
+                    sound = BattleBoxSoundEngine.SoundType.PASS_CHECK_IN
+                )
+            }.onFailure { err ->
+                _actionBanner.value = err.localizedMessage ?: "Failed to save workout session."
             }
         }
     }

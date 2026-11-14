@@ -215,6 +215,52 @@
         "futureFinanceModulesEnabled",
         "updatedAt"
       ]
+    },
+    "WorkoutProfile": {
+      "title": "WorkoutProfile",
+      "description": "Personal workout summary, body metrics (BMI height/weight), macro targets, streak, PRs, and weight trend.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "heightCm": { "type": "number" },
+        "weightKg": { "type": "number" },
+        "calorieTarget": { "type": "integer" },
+        "activeMinutesTarget": { "type": "integer" },
+        "proteinTargetG": { "type": "integer" },
+        "caloriesToday": { "type": "integer" },
+        "activeMinutesToday": { "type": "integer" },
+        "proteinTodayG": { "type": "integer" },
+        "streakDays": { "type": "integer" },
+        "lastWorkoutDateIso": { "type": "string" },
+        "personalRecords": { "type": "array" },
+        "weightHistory": { "type": "array" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "userId", "heightCm", "weightKg", "calorieTarget", "activeMinutesTarget",
+        "proteinTargetG", "caloriesToday", "activeMinutesToday", "proteinTodayG",
+        "streakDays", "lastWorkoutDateIso", "personalRecords", "weightHistory", "updatedAt"
+      ]
+    },
+    "WorkoutLog": {
+      "title": "WorkoutLog",
+      "description": "Completed workout session record logged in Battle Box : FFF Workout Mode.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "workoutTitle": { "type": "string" },
+        "durationSeconds": { "type": "integer" },
+        "totalVolumeKg": { "type": "number" },
+        "caloriesBurned": { "type": "integer" },
+        "completedSets": { "type": "integer" },
+        "exercisesCompleted": { "type": "integer" },
+        "prAchievedLabel": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "userId", "workoutTitle", "durationSeconds", "totalVolumeKg",
+        "caloriesBurned", "completedSets", "exercisesCompleted", "prAchievedLabel", "createdAt"
+      ]
     }
   },
   "firestore": {
@@ -281,6 +327,14 @@
     "/billing_config/{configId}": {
       "schema": { "$ref": "#/entities/Phase3BillingConfig" },
       "description": "Phase 3 payment gateway and UPI AutoPay readiness configuration."
+    },
+    "/workout_profiles/{userId}": {
+      "schema": { "$ref": "#/entities/WorkoutProfile" },
+      "description": "Per-user workout readiness, streak, macros, BMI metrics, and personal records."
+    },
+    "/workout_logs/{logId}": {
+      "schema": { "$ref": "#/entities/WorkoutLog" },
+      "description": "Per-user completed workout session logs."
     }
   }
 }
